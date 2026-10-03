@@ -1,15 +1,15 @@
-# Ask Ise 🌿
+# Ask Iche 🌿
 
 **A local AI git buddy for beginners.** It reads your real repo, makes a safe plan, explains it in plain English with [Gemma](https://ai.google.dev/gemma), and runs each step only after you say yes.
 
-I built it for my colleague of 6 months. She's a Flutter dev learning a Node.js backend, and git (push, pull, fetch, conflicts) is where she always gets stuck. Until now the fix was "ask Ise". Now she can ask *Ask Ise*. And her work repo never leaves her laptop.
+I built it for my colleague of 6 months. She's a Flutter dev learning a Node.js backend, and git (push, pull, fetch, conflicts) is where she always gets stuck. Until now the fix was "ask Iche". Now she can ask *Ask Ise*. And her work repo never leaves her laptop.
 
 > Built for the DEV Hacktoberfest Weekend Challenge: *Build for a Friend*.
 
 ## What it does
 
 ```bash
-node ask-ise.mjs "my push got rejected" ~/projects/my-app
+node ask-iche.mjs "my push got rejected" ~/projects/my-app
 ```
 
 1. **Reads your repo** (read-only): branch, ahead/behind, unsaved files, conflicts.
@@ -39,7 +39,7 @@ What do you want to keep?
   4) Keep both (theirs first)   5) I'll fix it myself in my editor
 ```
 
-It previews the result, backs up the old file to `.git/ask-ise-backup/`, and the **code** rebuilds the file, not the AI.
+It previews the result, backs up the old file to `.git/ask-iche-backup/`, and the **code** rebuilds the file, not the AI.
 
 ### Safety first
 
@@ -57,20 +57,20 @@ It previews the result, backs up the old file to `.git/ask-ise-backup/`, and the
    ```
 3. Clone this repo:
    ```bash
-   git clone https://github.com/G00dS0ul/ask-ise.git
-   cd ask-ise
+   git clone https://github.com/G00dS0ul/ask-iche.git
+   cd ask-iche
    ```
 No `npm install` needed. There are no dependencies.
 
 ## Usage
 
 ```bash
-node ask-ise.mjs status   [repo-path]       # where am I?
-node ask-ise.mjs push     [repo-path]       # save + upload my work safely
-node ask-ise.mjs pull     [repo-path]       # get the latest changes
-node ask-ise.mjs save     [repo-path]       # commit my work
-node ask-ise.mjs resolve  [repo-path]       # fix a conflict
-node ask-ise.mjs "my push got rejected" [repo-path]   # or just describe it
+node ask-iche.mjs status   [repo-path]       # where am I?
+node ask-iche.mjs push     [repo-path]       # save + upload my work safely
+node ask-iche.mjs pull     [repo-path]       # get the latest changes
+node ask-iche.mjs save     [repo-path]       # commit my work
+node ask-iche.mjs resolve  [repo-path]       # fix a conflict
+node ask-iche.mjs "my push got rejected" [repo-path]   # or just describe it
 ```
 
 Flags:
@@ -109,7 +109,7 @@ Your message ─┐
 | `runner.mjs` | Runs steps with confirmation, re-plans after failures |
 | `conflicts.mjs` | Side-by-side conflict helper (no markers) |
 | `gemma.mjs` | Ollama client: streaming explanations + intent detection |
-| `ask-ise.mjs` | The CLI |
+| `ask-iche.mjs` | The CLI |
 
 ## Why local and open
 
