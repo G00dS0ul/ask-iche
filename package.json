@@ -1,0 +1,11 @@
+{
+  "name": "ask-ise",
+  "version": "0.1.0",
+  "description": "A local AI git buddy for beginners. The code plans, Gemma explains, and nothing runs without your OK.",
+  "type": "module",
+  "bin": { "ask-ise": "./ask-ise.mjs" },
+  "scripts": { "start": "node ask-ise.mjs" },
+  "engines": { "node": ">=18" },
+  "keywords": ["git", "beginner", "gemma", "ollama", "local-ai", "cli"],
+  "license": "MIT"
+}

@@ -1,0 +1,128 @@
+# Ask Ise 🌿
+
+**A local AI git buddy for beginners.** It reads your real repo, makes a safe plan, explains it in plain English with [Gemma](https://ai.google.dev/gemma), and runs each step only after you say yes.
+
+I built it for my colleague of 6 months. She's a Flutter dev learning a Node.js backend, and git (push, pull, fetch, conflicts) is where she always gets stuck. Until now the fix was "ask Ise". Now she can ask *Ask Ise*. And her work repo never leaves her laptop.
+
+> Built for the DEV Hacktoberfest Weekend Challenge: *Build for a Friend*.
+
+## What it does
+
+```bash
+node ask-ise.mjs "my push got rejected" ~/projects/my-app
+```
+
+1. **Reads your repo** (read-only): branch, ahead/behind, unsaved files, conflicts.
+2. **Makes a plan** with plain code, not AI: e.g. add → commit → pull → push.
+3. **Gemma explains** what's going on and why each step is needed, streamed live, on your laptop.
+4. **Runs one step at a time**, only after you confirm.
+5. **Re-checks after each step.** If a pull hits a conflict, it switches to the conflict helper.
+
+### No scary conflict markers
+
+You never see `<<<<<<<`, `=======` or `>>>>>>>`. Ask Ise shows each conflict side by side:
+
+```
+── Conflict 1 of 1 in api.js (around line 7) ──
+  Before anyone changed it:
+    │ return { ok: true, token: "demo-token" };
+  ① Yours (your laptop):
+    │ return { ok: true, token: "demo-token", expiresIn: 3600 };
+  ② Theirs (origin/main):
+    │ return { ok: true, token: createToken(email) };
+
+💬 You: You added expiresIn: 3600 to the object.
+   Them: They changed the return value to use createToken(email).
+
+What do you want to keep?
+  1) Keep mine   2) Keep theirs   3) Keep both (mine first)
+  4) Keep both (theirs first)   5) I'll fix it myself in my editor
+```
+
+It previews the result, backs up the old file to `.git/ask-ise-backup/`, and the **code** rebuilds the file, not the AI.
+
+### Safety first
+
+- **The code plans, the model teaches.** I benchmarked 3 open models on the same git problem. None planned correctly twice in a row, so a deterministic rules engine decides the steps and Gemma only explains them.
+- **A guard checks every command** right before it runs. Force push, `reset --hard`, `clean -f`, `branch -D`, `rebase`, `--amend`, and unknown commands are blocked.
+- **Never opens vim.** Merges finish without dropping you into an editor.
+- **Works without AI.** If Ollama isn't running, Ask Ise still works with built-in explanations.
+
+## Setup
+
+1. Install [Node.js 18+](https://nodejs.org) and [git](https://git-scm.com).
+2. Install [Ollama](https://ollama.com/download), then pull Gemma:
+   ```bash
+   ollama pull gemma3:4b
+   ```
+3. Clone this repo:
+   ```bash
+   git clone https://github.com/G00dS0ul/ask-ise.git
+   cd ask-ise
+   ```
+No `npm install` needed. There are no dependencies.
+
+## Usage
+
+```bash
+node ask-ise.mjs status   [repo-path]       # where am I?
+node ask-ise.mjs push     [repo-path]       # save + upload my work safely
+node ask-ise.mjs pull     [repo-path]       # get the latest changes
+node ask-ise.mjs save     [repo-path]       # commit my work
+node ask-ise.mjs resolve  [repo-path]       # fix a conflict
+node ask-ise.mjs "my push got rejected" [repo-path]   # or just describe it
+```
+
+Flags:
+
+| Flag | What it does |
+| --- | --- |
+| `--no-ai` | Use built-in explanations only (no Ollama needed) |
+| `--no-fetch` | Don't check the remote first (faster, offline) |
+| `--stats` | Show Gemma timings |
+
+Use a different model: `ASK_ISE_MODEL=qwen2.5-coder:3b node ask-ise.mjs status`
+
+> 💡 Try it on a throwaway GitHub repo first. A *copied* folder still points at the real remote.
+
+## How it works
+
+```
+Your message ─┐
+              ▼
+  [Collector]     read-only git commands → facts
+              ▼
+  [Rules engine]  facts + intent → exact steps (no AI)
+              ▼
+  [Gemma]         facts + steps → friendly explanation (streamed)
+              ▼
+  [Guard]         every command checked against an allowlist
+              ▼
+  [Runner]        confirm → run → re-check → repeat
+```
+
+| File | Job |
+| --- | --- |
+| `collector.mjs` | Reads repo state (`git status --porcelain=v2`) into facts |
+| `rules.mjs` | Deterministic planner: state + intent → steps |
+| `guard.mjs` | Blocks dangerous and unknown commands |
+| `runner.mjs` | Runs steps with confirmation, re-plans after failures |
+| `conflicts.mjs` | Side-by-side conflict helper (no markers) |
+| `gemma.mjs` | Ollama client: streaming explanations + intent detection |
+| `ask-ise.mjs` | The CLI |
+
+## Why local and open
+
+- Her work repo stays on her laptop. Nothing is sent to a cloud API.
+- It costs $0 to run and works offline.
+- The model is one environment variable away from being swapped, so I could benchmark open models freely.
+
+## Roadmap
+
+- [ ] A friendly desktop/web UI instead of the terminal
+- [ ] Undo help (safely reverting a commit)
+- [ ] Learn mode: a tiny quiz after each action
+
+## License
+
+MIT
