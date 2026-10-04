@@ -38,14 +38,17 @@ export function explainError(out) {
   if (o.includes("authentication failed") || o.includes("permission denied") || o.includes("403"))
     return "GitHub didn't accept your login. You may need to sign in again or check that you have access to this repo.";
   if (o.includes("rejected") && (o.includes("fetch first") || o.includes("non-fast-forward")))
-    return "The remote has new commits you don't have yet. Ask Iche will pull them first.";
+    return "The remote has new commits you don't have yet. Iche will pull them first.";
   if (o.includes("please commit your changes or stash them") || o.includes("would be overwritten"))
     return "Your unsaved changes touch the same files, so git stopped safely. Nothing was changed. Commit or stash them first.";
   if (o.includes("stale info") || (o.includes("rejected") && o.includes("lease")))
     return "Someone else pushed to your branch, so git refused to replace it. Nothing was overwritten. Get latest first.";
   if (o.includes("no local changes to save")) return "There was nothing to stash.";
+  if (o.includes("not fully merged")) return "Git won't delete that branch because it has commits that aren't merged anywhere yet. Nothing was deleted, so nothing is lost.";
+  if (o.includes("already exists")) return "A branch with that name already exists. Nothing was changed. Try another name.";
+  if (o.includes("invalid reference") || o.includes("did not match any")) return "Git couldn't find that branch. Nothing was changed.";
   if (o.includes("nothing to commit")) return "There was nothing new to commit.";
-  if (o.includes("divergent branches")) return "Your branch and the remote both changed. Ask Iche will merge them.";
+  if (o.includes("divergent branches")) return "Your branch and the remote both changed. Iche will merge them.";
   return null;
 }
 
@@ -95,8 +98,8 @@ async function pickOne(needs, ui) {
  * @param {boolean} [o.fetch=true]
  * @param {function} [o.onEvent]     telemetry hook (e.g. Sentry later)
  */
-export async function run({ cwd, intent, ui, explain, fetch = true, onEvent = () => {} }) {
-  const values = {};
+export async function run({ cwd, intent, ui, explain, fetch = true, onEvent = () => {}, values: preset = {} }) {
+  const values = { ...preset };
   let mustFetch = false; // set when a push is rejected: the remote has news we must download
   for (let round = 1; round <= MAX_ROUNDS; round++) {
     const state = await collect({ cwd, fetch: fetch || mustFetch });
@@ -191,7 +194,7 @@ export async function run({ cwd, intent, ui, explain, fetch = true, onEvent = ()
       if (s.mark && (r.code === 0 || /conflict/i.test(r.out))) values[s.mark] = true; // remember what already happened
       if (r.code !== 0) {
         const friendly = explainError(r.out);
-        ui.say(friendly || "That command didn't work. Ask Iche will check what happened.", "warn");
+        ui.say(friendly || "That command didn't work. Iche will check what happened.", "warn");
         failed = true;
         if (/rejected|fetch first|non-fast-forward/i.test(r.out)) mustFetch = true;
         break; // re-collect and re-plan (e.g. pull hit a conflict -> conflict flow)
@@ -209,7 +212,7 @@ export async function run({ cwd, intent, ui, explain, fetch = true, onEvent = ()
     }
     // otherwise loop: re-collect, re-plan, continue
   }
-  ui.say("This is taking more rounds than expected. Time to ask the real Iche. 😅", "warn");
+  ui.say("This is taking more rounds than expected. Time to message Iche (the human one 😄).", "warn");
   return { ok: false, tooManyRounds: true };
 }
 

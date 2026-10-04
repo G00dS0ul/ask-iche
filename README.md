@@ -52,6 +52,10 @@ It previews the result, backs up the old file to `.git/ask-iche-backup/`, and th
 | ↩️ **Undo commits** · `undo` | Soft (keep changes staged), mixed (keep as unsaved edits) or hard (throw away). Only for commits not pushed yet. |
 | 🧹 **Clean up for review** · `cleanup` | Rebases your branch on the latest `main`. Optionally squashes all your commits into one clean commit, then pushes with `--force-with-lease`. |
 | 🍒 **Copy a commit** · `cherry-pick` | Pick a branch, pick a commit, and copy it onto your branch. |
+| 🌿 **Branches** · `branch` | Switch, create (from here or the latest `main`), rename, or delete a branch. Unsaved work? It asks: stash, commit, or take it with you. Delete uses the safe `-d`, and old `backup/` copies can be cleaned up here too. |
+| 📜 **History** · `log` | Commit history of your branch, GitHub's copy, or `main`: one line each, or detailed (author, time, files). |
+
+You can also type real git commands in the box: `git checkout main`, `git checkout -b feature/x`, `git branch -m new-name`, `git log --oneline origin/main`. Ask Iche turns them into the same guided steps.
 
 If a stash pop, rebase or cherry-pick hits a conflict, the same side-by-side conflict helper takes over.
 
@@ -59,6 +63,7 @@ If a stash pop, rebase or cherry-pick hits a conflict, the same side-by-side con
 
 - **The code plans, the model teaches.** I benchmarked 3 open models on the same git problem. None planned correctly twice in a row, so a deterministic rules engine decides the steps and Gemma only explains them.
 - **A guard checks every command** right before it runs. Unknown commands are blocked. Plain `--force` push, rewriting `main`/`master`/`develop`, and interactive rebase are **never** allowed.
+- **Dangerous requests are a hard stop.** Type `git push --force`, `force push to main`, `git rebase -i`, `git clean -fd`, `git branch -D`, `git checkout .` or `git commit --amend` and Ask Iche refuses with a red "Blocked" card. It tells you the safe button to use instead, but there's nothing to click and nothing runs. `git push origin main` from your own branch is blocked too (use a Pull Request).
 - **Risky steps only run when the plan asks for them**, and you must type `yes`: `reset --hard`, `rebase`, and `push --force-with-lease` (only on your own branch). A `backup/...` branch is made first, so you can always get your commits back.
 - **Never opens vim.** Merges finish without dropping you into an editor.
 - **Works without AI.** If Ollama isn't running, Ask Iche still works with built-in explanations.
@@ -108,6 +113,9 @@ node ask-iche.mjs pop      [repo-path]       # bring a stash back (by number or 
 node ask-iche.mjs undo     [repo-path]       # undo commits: soft / mixed / hard
 node ask-iche.mjs cleanup  [repo-path]       # rebase on main (+ squash) for review
 node ask-iche.mjs cherry-pick [repo-path]    # copy one commit from another branch
+node ask-iche.mjs branch   [repo-path]       # switch / create / rename / delete a branch
+node ask-iche.mjs log      [repo-path]       # commit history (one line or detailed)
+node ask-iche.mjs "git checkout main" [repo-path]   # real git commands work too
 node ask-iche.mjs "my push got rejected" [repo-path]   # or just describe it
 ```
 
@@ -163,6 +171,7 @@ Your message ─┐
 - [x] Undo commits (soft / mixed / hard reset) with a backup branch
 - [x] Clean up for review: rebase on main + optional squash
 - [x] Copy a commit (cherry-pick)
+- [x] Branches (switch / create / rename / delete) and History (git log)
 - [ ] Revert for commits that are already pushed
 - [ ] Learn mode: a tiny quiz after each action
 

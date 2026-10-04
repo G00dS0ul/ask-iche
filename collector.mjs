@@ -127,10 +127,10 @@ export async function collect({ cwd = process.cwd(), fetch = false } = {}) {
 
   const status = parseStatus(await git(["status", "--porcelain=v2", "--branch", "-z"], cwd));
 
-  const logRaw = status.noCommitsYet ? "" : (await tryGit(["log", "--format=%h%x09%s", "-10"], cwd)) || "";
+  const logRaw = status.noCommitsYet ? "" : (await tryGit(["log", "--format=%h%x09%p%x09%s", "-10"], cwd)) || "";
   const recentCommits = logRaw.split("\n").filter(Boolean).map(l => {
-    const [hash, ...msg] = l.split("\t");
-    return { hash, message: msg.join("\t") };
+    const [hash, parents = "", ...msg] = l.split("\t");
+    return { hash, message: msg.join("\t"), merge: parents.trim().split(/\s+/).length > 1 };
   });
 
   // Stashes: index, the name she gave it, the branch it came from, and when
@@ -162,6 +162,14 @@ export async function collect({ cwd = process.cwd(), fetch = false } = {}) {
   const short = r => (isRemote(r) ? r.slice(r.indexOf("/") + 1) : r);
   const branches = [...refs.filter(isRemote), ...refs.filter(r => !isRemote(r) && !refs.includes(`origin/${r}`))]
     .filter(r => short(r) !== status.branch);
+
+  // Every branch, for "Branches" (switch / new / rename / delete)
+  const heads = ((await tryGit(["for-each-ref", "--format=%(refname:short)%09%(objectname:short)", "refs/heads"], cwd)) || "")
+    .split("\n").filter(Boolean).map(l => { const [name, hash] = l.split("\t"); return { name, hash }; });
+  const localBranches = heads.map(h => h.name).filter(n => !n.startsWith("backup/"));
+  const backups = heads.filter(h => h.name.startsWith("backup/"));
+  const remoteOnly = refs.filter(isRemote).map(short).filter(b => !heads.some(h => h.name === b));
+  const headHash = recentCommits[0]?.hash || null;
 
   // Commits fail without a name/email, a common first-time problem
   const userName = (await tryGit(["config", "user.name"], cwd))?.trim() || null;
@@ -197,6 +205,10 @@ export async function collect({ cwd = process.cwd(), fetch = false } = {}) {
     mergeBase,
     branchCommits,
     branches,
+    localBranches,
+    remoteOnly,
+    backups,
+    headHash,
     recentCommits,
     fetched,
     fetchError,
@@ -279,7 +291,7 @@ export function toFacts(st) {
     f.push("You have no uncommitted changes.");
   if (!st.hasIdentity) f.push("Git doesn't know your name and email yet, so commits will fail.");
   if (st.stashCount) {
-    f.push(`You have ${plural(st.stashCount, "stash")} saved (work put aside):`);
+    f.push(`You have ${(st.stashCount === 1 ? "1 stash" : `${st.stashCount} stashes`)} saved (work put aside):`);
     st.stashes.slice(0, 10).forEach(x => f.push(`  stash #${x.index}: "${x.name}"${x.branch ? ` (from branch ${x.branch}` : " ("}${x.when ? `, ${x.when}` : ""})`));
   }
   if (st.base && !st.onBase && !st.detached && (st.aheadBase || st.behindBase))
@@ -309,7 +321,7 @@ export function nextHint(st) {
   if (!st || !st.ok || !st.isRepo) return null;
   if (st.conflicts?.length || st.operation) return "You're in the middle of fixing a conflict. Choose \"Fix a conflict\" to finish it.";
   const dirty = st.staged.length + st.unstaged.length + st.untracked.length;
-  if (dirty && st.behind) return "You have unsaved work and new changes on the remote. Choose \"Upload my work\" and Ask Iche will save, pull, and push safely.";
+  if (dirty && st.behind) return "You have unsaved work and new changes on the remote. Choose \"Upload my work\" and Iche will save, pull, and push safely.";
   if (dirty) return "You have unsaved work. Choose \"Save my work\" to commit it, or \"Upload my work\" to commit and push.";
   if (st.ahead) return `You have ${st.ahead} commit${st.ahead > 1 ? "s" : ""} that ${st.ahead > 1 ? "aren't" : "isn't"} on the remote yet. Choose "Upload my work" to push.`;
   if (st.behind) return "Your team has new changes. Choose \"Get latest\" to pull them.";

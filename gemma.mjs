@@ -12,7 +12,7 @@ export const CANNED = {
   pull: "Downloads the new commits from the remote and merges them into your branch.",
   push: "Uploads your commits to the remote so others can see them.",
   "push-new-branch": "Uploads your branch to the remote for the first time and links them, so next time plain push works.",
-  "edit-conflicts": "Ask Iche shows you both versions side by side, and you pick which one to keep. No scary markers.",
+  "edit-conflicts": "Iche shows you both versions side by side, and you pick which one to keep. No scary markers.",
   "mark-resolved": "Tells git you've finished fixing the conflict in these files.",
   "finish-merge": "Completes the merge with git's default message.",
   "continue-rebase": "Continues the rebase now that the conflict is fixed.",
@@ -34,9 +34,19 @@ export const CANNED = {
   rebase: "Replays your commits on top of the latest main branch, so your branch is up to date and easy to review.",
   "push-lease": "Uploads your cleaned-up branch. It only replaces your own branch, and refuses if someone else pushed to it.",
   "cherry-pick": "Copies that one commit onto your current branch as a new commit.",
+  switch: "Moves you to that branch. Your files change to match it; nothing is lost.",
+  "new-branch": "Creates a new branch and switches you to it.",
+  "rename-branch": "Renames your branch. Your commits stay exactly the same.",
+  "delete-branch": "Deletes that branch from your laptop only. GitHub isn't touched.",
+  log: "Shows the commit history. Read-only, nothing changes.",
 };
+// Steps whose meaning is easy to get wrong: always use the exact built-in reason, not the model's.
+const FIXED = new Set(["backup", "squash-reset", "reset-soft", "reset-mixed", "reset-hard", "finish-merge", "cherry-pick",
+  "push-lease", "stash-pop-mine", "switch", "new-branch", "rename-branch", "delete-branch", "log"]);
+const fixedReason = s => s.reason || (FIXED.has(s.why) ? CANNED[s.why] : null);
 
 function fallbackSummary(plan) {
+  if (plan.summary) return plan.summary;
   const s = {
     "behind-and-ahead": "The remote has new commits you don't have yet, so git won't accept your push until you bring them in first.",
     behind: "The remote has new commits you don't have yet.",
@@ -71,6 +81,12 @@ function fallbackSummary(plan) {
     "on-main": "You're on the shared main branch. Clean-up is only for your own feature branch.",
     "cherry-pick": "This copies one commit from another branch onto yours.",
     "nothing-to-pick": "Your branch already has every commit from that branch.",
+    switch: "This moves you to another branch.",
+    "new-branch": "This creates a new branch for your work.",
+    "rename-branch": "This gives your branch a new name.",
+    "delete-branch": "This deletes a branch you don't need anymore.",
+    log: "Here's the commit history you asked for.",
+    "undo-merge-refused": "Your latest commit is a merge, so undoing it here isn't safe.",
   };
   return s[plan.situation] || "Here's where your repo is right now.";
 }
@@ -138,7 +154,11 @@ Rules:
 - Conflicts are normal and nothing is lost. Never tell her to "check for conflicts before pulling".
 - "git add" stages files for the next commit. "git commit" saves them as a snapshot. "git push" uploads commits.
 - Only mention files, branches, and numbers that appear in FACTS. Never invent any.
+- Words like <the name you type> are filled in by her later. Never guess or invent them.
+- Only describe what is happening. Never guess WHY she is doing it.
 - Short, simple, encouraging sentences. One line each.
+- Use branch names exactly as written, including any "backup/" part.
+- The TIP must be practical and calm. Never tell her to "experiment" with or "play around" with commands.
 
 {EXTRA}Reply in EXACTLY this format, nothing else:
 SUMMARY: <1-2 sentences on what is going on and why>
@@ -149,6 +169,8 @@ TIP: <one short learning tip>`;
 
 // Extra facts about commands, only added when a step uses them (shorter prompt = faster on a CPU).
 const COMMAND_NOTES = [
+  [/commit --no-edit/, `- "git commit --no-edit" (after a conflict) finishes the merge with git's default message. It saves her conflict choices as a merge commit.`],
+  [/pull --no-rebase/, `- "git pull --no-rebase" downloads new commits from GitHub and merges them into her branch.`],
   [/stash push/, `- "git stash push -m <name>" puts unsaved changes aside in a named stash. Nothing is lost.`],
   [/stash pop/, `- "git stash pop" brings a stash back into the files and removes it from the stash list.`],
   [/reset --soft/, `- "git reset --soft" undoes commits but keeps the changes staged.`],
@@ -172,6 +194,11 @@ Reply in EXACTLY this format:
 SUMMARY: <1-2 sentences>
 TIP: <one short tip>`;
 
+// {placeholders} confuse the model ("a stash named {stashName}"), so say what they mean.
+const PLACEHOLDER_WORDS = { stashName: "<the name you type>", message: "<the message you type>", branch: "<the branch name you type>",
+  name: "<your name>", email: "<your email>", url: "<the repo URL>" };
+const forModel = d => d.replace(/\{(\w+)\}/g, (_, k) => PLACEHOLDER_WORDS[k] || "<what you type>");
+
 /**
  * @param {object} plan   from rules.plan()
  * @param {string[]} facts from collector.toFacts()
@@ -182,20 +209,24 @@ export async function explainPlan(plan, facts, cb = {}, { offline = false } = {}
   const steps = plan.steps;
   const canned = () => ({
     summary: fallbackSummary(plan),
-    reasons: steps.map(s => CANNED[s.why] || s.display),
-    tip: null,
+    reasons: steps.map(s => fixedReason(s) || CANNED[s.why] || s.display),
+    tip: plan.tip || null,
   });
+  const sendCanned = c => { cb.onSummary?.(c.summary); c.reasons.forEach((r, i) => cb.onReason?.(i, r)); if (c.tip) cb.onTip?.(c.tip); };
   if (offline) {
     const c = canned();
-    cb.onSummary?.(c.summary);
-    c.reasons.forEach((r, i) => cb.onReason?.(i, r));
+    sendCanned(c);
     return { ai: false, ...c };
   }
 
-  const user = `FACTS:\n- ${facts.join("\n- ")}\n${plan.warnings.length ? `WARNINGS:\n- ${plan.warnings.join("\n- ")}\n` : ""}SITUATION: ${plan.situation}\n` +
-    (steps.length ? `STEPS:\n${steps.map((s, i) => `${i + 1}. ${s.display}`).join("\n")}` : "STEPS: none");
+  const ctx = plan.context?.length ? `CONTEXT:\n- ${plan.context.join("\n- ")}\n` : "";
+  const user = `FACTS:\n- ${facts.join("\n- ")}\n${ctx}${plan.warnings.length ? `WARNINGS:\n- ${plan.warnings.join("\n- ")}\n` : ""}SITUATION: ${plan.situation}\n` +
+    (steps.length ? `STEPS:\n${steps.map((s, i) => `${i + 1}. ${forModel(s.display)}`).join("\n")}` : "STEPS: none");
 
   const seen = { summary: null, reasons: [], tip: null };
+  // Some plans have a fixed summary/tip (easy to get wrong): show it now and ignore the model's.
+  if (plan.summary) { seen.summary = plan.summary; cb.onSummary?.(plan.summary); }
+  if (plan.tip) { seen.tip = plan.tip; cb.onTip?.(plan.tip); }
   let partial = "";
   const handleLine = line => {
     const m = line.match(/^\s*(SUMMARY|TIP|\d+)\s*[:.)-]\s*(.+)$/i);
@@ -205,7 +236,7 @@ export async function explainPlan(plan, facts, cb = {}, { offline = false } = {}
     else if (key === "TIP" && !seen.tip) { seen.tip = val; cb.onTip?.(val); }
     else if (/^\d+$/.test(key)) {
       const i = +key - 1;
-      if (i === seen.reasons.length && i < steps.length) { seen.reasons.push(val); cb.onReason?.(i, val); }
+      if (i === seen.reasons.length && i < steps.length) { const v = fixedReason(steps[i]) || val; seen.reasons.push(v); cb.onReason?.(i, v); }
     }
   };
 
@@ -224,8 +255,10 @@ export async function explainPlan(plan, facts, cb = {}, { offline = false } = {}
     return { ai: true, ...seen, stats, fellBack };
   } catch (e) {
     const c = canned();
+    if (seen.summary) c.summary = seen.summary; // already shown
     cb.onSummary?.(c.summary);
     c.reasons.forEach((r, i) => cb.onReason?.(i, r));
+    if (c.tip && !seen.tip) cb.onTip?.(c.tip);
     return { ai: false, ...c, error: e.message };
   }
 }
@@ -233,6 +266,8 @@ export async function explainPlan(plan, facts, cb = {}, { offline = false } = {}
 // ---------- 2) Understand what she typed ----------
 const KEYWORDS = [
   ["force-push", /\bforce\b/i],
+  ["log", /\bgit log\b|\bhistory\b|\blog\b|(list|see|show)( me)? (my |the |all )?(recent |last )?commits/i],
+  ["branch", /\b(checkout|switch)\b|\b(new|create|make|delete|remove|rename|change|go to|move to) (a |the |my |to |another )?(new )?branch|\bbranches\b/i],
   ["resolve", /conflict|<<<<<<<|resolve|merge (error|fail|problem)/i],
   ["stash-list", /stash ?list|(my|the|all|see|show|list)( my)? stash(es)?\b|what (did i|have i) stash/i],
   ["unstash", /\bpop\b|unstash|(bring|get|put) (back|it back)|restore (my )?stash|apply (my |the )?stash/i],
@@ -252,9 +287,9 @@ export async function detectIntent(text) {
   try {
     const { text: out } = await chatStream([
       { role: "system", content: "Classify the user's git request. Reply with JSON only." },
-      { role: "user", content: `Request: "${text}"\nChoose one intent: status (wants to know what's going on), save (commit work), push (upload work), pull (get latest changes), resolve (fix a conflict), stash (put unfinished work aside), stash-list (see stashes), unstash (bring stashed work back), reset (undo commits), rebase (clean up branch for review), cherry-pick (copy one commit from another branch), unknown.` },
+      { role: "user", content: `Request: "${text}"\nChoose one intent: status (wants to know what's going on), save (commit work), push (upload work), pull (get latest changes), resolve (fix a conflict), stash (put unfinished work aside), stash-list (see stashes), unstash (bring stashed work back), reset (undo commits), rebase (clean up branch for review), cherry-pick (copy one commit from another branch), branch (switch, create, rename or delete a branch), log (see commit history), unknown.` },
     ], {
-      format: { type: "object", properties: { intent: { type: "string", enum: ["status", "save", "push", "pull", "resolve", "stash", "stash-list", "unstash", "reset", "rebase", "cherry-pick", "unknown"] } }, required: ["intent"] },
+      format: { type: "object", properties: { intent: { type: "string", enum: ["status", "save", "push", "pull", "resolve", "stash", "stash-list", "unstash", "reset", "rebase", "cherry-pick", "branch", "log", "unknown"] } }, required: ["intent"] },
       options: { temperature: 0, num_predict: 20 },
     });
     const intent = JSON.parse(out).intent;
@@ -269,17 +304,26 @@ export async function detectIntent(text) {
 // It only DESCRIBES. It never picks for her and never writes the merged code.
 const CONFLICT_SYSTEM = `You are "Ask Iche", a calm, friendly git mentor. Speak to her as "you".
 Two people changed the same lines of a file. You get ORIGINAL, YOURS and THEIRS.
-Describe in plain English what each side changed compared to ORIGINAL. Start the YOU line with "You" (never "I") and the THEM line with "They". Be specific (name the method, value or text).
+Describe in plain English what each side changed compared to ORIGINAL. The HINTS say exactly which lines each side ADDED or REMOVED; follow them and never swap "added" and "removed". Start the YOU line with "You" (never "I") and the THEM line with "They". Be specific (name the method, value or text).
 Do not pick a winner. Do not write code. Do not mention git markers. Keep each line short.
 Reply in EXACTLY this format:
 YOU: <what you changed>
 THEM: <what they changed>
 NOTE: <one calm sentence on what to think about when choosing, e.g. if keeping both would duplicate something>`;
 
+// Which lines each side added/removed vs ORIGINAL, so the model can't flip "added" and "removed".
+function lineDiff(base, side) {
+  const b = (base || "").split("\n").filter(l => l.trim()), s = (side || "").split("\n").filter(l => l.trim());
+  const added = s.filter(l => !b.includes(l)), removed = b.filter(l => !s.includes(l));
+  const q = l => `"${l.trim().slice(0, 60)}"`;
+  const parts = [added.length && `ADDED ${added.slice(0, 4).map(q).join(", ")}`, removed.length && `REMOVED ${removed.slice(0, 4).map(q).join(", ")}`].filter(Boolean);
+  return parts.length ? parts.join("; ") : "changed nothing compared to ORIGINAL (only blank lines or spacing)";
+}
 const cap = (s, n = 40) => { const l = (s || "").split("\n"); return l.length > n ? l.slice(0, n).join("\n") + "\n...(cut)" : s || "(empty)"; };
 
 export async function explainConflict(file, c, cb = {}) {
-  const user = `FILE: ${file}\nORIGINAL:\n${cap(c.base)}\nYOURS:\n${cap(c.mine)}\nTHEIRS:\n${cap(c.theirs)}`;
+  const user = `FILE: ${file}\nORIGINAL:\n${cap(c.base)}\nYOURS:\n${cap(c.mine)}\nTHEIRS:\n${cap(c.theirs)}\n` +
+    `HINTS (exact, trust these):\n- YOURS ${lineDiff(c.base, c.mine)}\n- THEIRS ${lineDiff(c.base, c.theirs)}`;
   const seen = {};
   const handle = line => {
     const m = line.replace(/\*\*/g, "").match(/^\s*(YOU|THEM|NOTE)\s*:\s*(.+)$/i);

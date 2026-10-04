@@ -13,11 +13,11 @@ const pushTarget = a => a.filter(x => !x.startsWith("-")).slice(2).map(x => x.re
 // Never allowed, not even when a plan asks for it.
 const NEVER = [
   [a => a[0] === "push" && has(a, "--force", "-f", "--mirror"),
-    "Plain force push can delete other people's work. Ask Iche only ever uses --force-with-lease, on your own branch."],
+    "Plain force push can delete other people's work. Iche only ever uses --force-with-lease, on your own branch."],
   [a => a[0] === "push" && has(a, "--force-with-lease") && (pushTarget(a).length !== 1 || PROTECTED.test(pushTarget(a)[0])),
     "Rewriting a shared branch like main is never allowed."],
   [a => a[0] === "rebase" && has(a, "-i", "--interactive", "--exec", "-x", "--root"),
-    "Interactive rebase needs an editor, so Ask Iche doesn't do it."],
+    "Interactive rebase needs an editor, so Iche doesn't do it."],
 ];
 
 // Each rule: [test(args), risk, reason]. First match wins.
@@ -32,8 +32,10 @@ const DANGER = [
     "dangerous", "reset --hard throws away all uncommitted changes permanently."],
   [a => a[0] === "clean" && a.some(x => /^-[a-z]*f/.test(x)),
     "dangerous", "git clean deletes untracked files permanently (they don't go to the recycle bin)."],
-  [a => a[0] === "branch" && has(a, "-D", "--delete", "-d"),
-    "dangerous", "This deletes a branch, and any commits only on it can be lost."],
+  [a => a[0] === "branch" && (has(a, "-D", "-f", "--force") && has(a, "-D", "-d", "--delete")),
+    "dangerous", "This force-deletes a branch, and any commits only on it can be lost."],
+  [a => a[0] === "branch" && has(a, "-d", "--delete"),
+    "careful", "This deletes a branch from your laptop. Git refuses if it has work that isn't merged anywhere."],
   [a => (a[0] === "checkout" || a[0] === "restore") && (has(a, ".", "--") || has(a, "--worktree")),
     "dangerous", "This throws away your unsaved changes to files."],
   [a => a[0] === "reset" && has(a, "--soft", "--mixed"),
@@ -81,7 +83,7 @@ export function check(args, { allowDangerous = false } = {}) {
 
   const rule = ALLOW[args[0]];
   const risk = typeof rule === "function" ? rule(args) : rule;
-  if (!risk) return { allowed: false, risk: "blocked", reason: `"git ${args[0]}" isn't on Ask Iche's allowed list.` };
+  if (!risk) return { allowed: false, risk: "blocked", reason: `"git ${args[0]}" isn't on Iche's allowed list.` };
   return { allowed: true, risk };
 }
 

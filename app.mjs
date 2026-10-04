@@ -13,7 +13,7 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { run } from "./runner.mjs";
 import { toFacts, nextHint } from "./collector.mjs";
-import { INTENTS } from "./rules.mjs";
+import { INTENTS, quickIntent, refuseText } from "./rules.mjs";
 import { CHOICES } from "./conflicts.mjs";
 import { MODEL, isAvailable, warmup, explainPlan, detectIntent, explainConflict } from "./gemma.mjs";
 
@@ -59,7 +59,7 @@ const ui = {
     emit({ type: "conflict", file, index, total, labels, line: conflict.line,
       base: conflict.base, mine: conflict.mine, theirs: conflict.theirs, choices: Object.values(CHOICES) });
     if (aiOn()) {
-      emit({ type: "thinking", text: `Ask Iche is reading both versions… (${MODEL}, on your laptop)` });
+      emit({ type: "thinking", text: `Iche is reading both versions… (${MODEL}, on your laptop)` });
       const r = await explainConflict(file, conflict, { onLine: (key, text) => emit({ type: "conflict-line", key, text }) });
       emit({ type: "thinking-done", stats: r.stats });
     }
@@ -68,8 +68,9 @@ const ui = {
 };
 
 async function explain(p, st) {
+  if (p.blocked) return emit({ type: "blocked" }); // refusal already shown; no plan, no AI, nothing to click
   emit({ type: "plan", situation: p.situation, hint: p.steps.length ? null : nextHint(st), steps: p.steps.map(s => ({ display: s.display, risk: s.risk, manual: !!s.manual })) });
-  if (aiOn()) emit({ type: "thinking", text: `Ask Iche is thinking… (${MODEL}, on your laptop)` });
+  if (aiOn()) emit({ type: "thinking", text: `Iche is thinking… (${MODEL}, on your laptop)` });
   const r = await explainPlan(p, toFacts(st), {
     onSummary: text => emit({ type: "summary", text }),
     onReason: (index, text) => emit({ type: "reason", index, text }),
@@ -82,17 +83,25 @@ async function explain(p, st) {
 const ALIASES = { sync: "push", upload: "push", update: "pull", download: "pull", commit: "save",
   fix: "resolve", conflict: "resolve", where: "status", check: "status", force: "force-push",
   stashes: "stash-list", pop: "unstash", unstash: "unstash", undo: "reset", uncommit: "reset",
-  cleanup: "rebase", "clean up": "rebase", squash: "rebase", cherry: "cherry-pick" };
+  cleanup: "rebase", "clean up": "rebase", squash: "rebase", cherry: "cherry-pick",
+  branch: "branch", branches: "branch", switch: "branch", checkout: "branch", log: "log", history: "log" };
 const WORDS = { status: "check where you are", save: "save (commit) your work", push: "upload (push) your work",
   pull: "get the latest changes", resolve: "fix a conflict", "force-push": "force push",
   stash: "stash (put aside) your unfinished work", "stash-list": "see your stash list", unstash: "bring back stashed work",
-  reset: "undo commits", rebase: "clean up your branch for review", "cherry-pick": "copy a commit from another branch" };
+  reset: "undo commits", rebase: "clean up your branch for review", "cherry-pick": "copy a commit from another branch",
+  branch: "work with branches", log: "see the commit history" };
 
 async function findIntent(text) {
   const t = String(text || "").trim().toLowerCase();
   if (!t) return { intent: null };
-  if (t === "revert") return { intent: null, refused: "Reverting pushed commits isn't in Ask Iche yet. Try \"Undo commits\" for ones you haven't pushed, or ask the real Iche. 😅" };
+  if (t === "revert") return { intent: null, refused: "Reverting pushed commits isn't in Ask Iche yet. Try \"Undo commits\" for ones you haven't pushed, or message Iche (the human one 😄)." };
+  const no = refuseText(text); // hard safety blocks come first: nothing to click, nothing runs
+  if (no?.refused) return { intent: null, refused: no.refused, blocked: true };
+  if (no?.intent) return { ...no, words: WORDS[no.intent], direct: true };
+  const quick = quickIntent(text);
+  if (quick) return { ...quick, words: WORDS[quick.intent], direct: true };
   const direct = ALIASES[t] || (INTENTS.includes(t) ? t : null);
+  if (!direct && !/[a-z]{2,}/.test(t)) return { intent: null }; // "0", "?", "1." are not requests
   if (direct) return { intent: direct, words: WORDS[direct], direct: true };
   const d = await detectIntent(text).catch(() => ({ intent: null }));
   return d.intent ? { intent: d.intent, words: WORDS[d.intent], by: d.by } : { intent: null };
@@ -161,11 +170,15 @@ const server = http.createServer(async (req, res) => {
     const cwd = String(b.path || "");
     if (!cwd || !existsSync(cwd) || !statSync(cwd).isDirectory()) return json(res, 400, { error: "That folder doesn't exist." });
     const intent = INTENTS.includes(b.intent) ? b.intent : "status";
+    // Only known keys, short strings (values typed in the main box, e.g. "pop 0" or "git checkout main")
+    const preset = {};
+    for (const k of ["stash", "action", "to", "branch", "target", "from", "ref", "style", "target"])
+      if (typeof b.values?.[k] === "string") preset[k] = b.values[k].slice(0, 100);
     busy = true; history = [];
     emit({ type: "start", intent, path: cwd, words: WORDS[intent] });
     json(res, 200, { ok: true });
     try {
-      const result = await run({ cwd, intent, ui, explain, fetch: b.fetch !== false });
+      const result = await run({ cwd, intent, ui, explain, fetch: b.fetch !== false, values: preset });
       emit({ type: "end", ok: !!result.ok, stopped: !!result.stopped });
     } catch (e) {
       emit({ type: "say", kind: "error", text: "Something went wrong inside Ask Iche: " + e.message });

@@ -37,6 +37,7 @@
   .facts li { padding:4px 0 4px 26px; position:relative; }
   .facts li::before { content:"•"; position:absolute; left:10px; color:var(--mute); }
   .warn { background:var(--amber-bg); color:var(--amber); padding:10px 14px; border-radius:10px; margin-top:10px; }
+  .warn.block { background:var(--red-bg); color:var(--red); font-weight:600; } .banner.stop { background:var(--red-bg); color:var(--red); }
   .msg { padding:10px 14px; border-radius:10px; margin:0 0 12px; }
   .msg.ok { background:var(--green-bg); color:var(--green); } .msg.warn { background:var(--amber-bg); color:var(--amber); }
   .msg.error { background:var(--red-bg); color:var(--red); } .msg.info { background:#f0f3f1; color:var(--mute); }
@@ -122,6 +123,8 @@
       <button class="action" data-intent="reset"><b>↩️ Undo commits</b><span>Soft, mixed or hard reset</span></button>
       <button class="action" data-intent="rebase"><b>🧹 Clean up for review</b><span>Rebase on main, squash</span></button>
       <button class="action" data-intent="cherry-pick"><b>🍒 Copy a commit</b><span>Cherry-pick from a branch</span></button>
+      <button class="action" data-intent="branch"><b>🌿 Branches</b><span>Switch, create, rename, delete</span></button>
+      <button class="action" data-intent="log"><b>📜 History</b><span>See commits (git log)</span></button>
     </div>
     <div class="row">
       <input type="text" id="said" placeholder='Or just tell me what happened, e.g. "my push got rejected"'>
@@ -163,6 +166,10 @@ function el(tag, props = {}, ...kids) {
 }
 const tl = $("#timeline");
 const RISK = { safe: "safe", normal: "needs your OK", careful: "careful", dangerous: "danger" };
+const DONE = { stash: "📦 Stashed! Your work is safe in your stash list.", unstash: "📤 Your stashed work is back in your files.",
+  save: "💾 Saved! Your work is in a commit.", reset: "↩️ Done. Those commits are undone.", rebase: "🧹 Your branch is clean and ready for review.",
+  "cherry-pick": "🍒 Done. The commit is copied onto your branch.", branch: "🌿 Done! Check again to see where you are.", log: "📜 That's the history. Nothing was changed." };
+let curIntent = null;
 let busy = false, plan = null, conflictCard = null, thinkingEl = null, runningStep = null;
 const showStats = new URLSearchParams(location.search).has("stats");
 
@@ -208,11 +215,11 @@ $("#aiPill").onclick = async () => drawAI({ ...(await api("ai", { on: !$("#aiPil
 
 // ---------- start a run ----------
 function setBusy(b) { busy = b; document.querySelectorAll(".action,#askBtn").forEach(x => x.disabled = b); }
-async function start(intent) {
+async function start(intent, values) {
   const path = $("#repo").value.trim();
   if (!path) { $("#browse").click(); return; }
   $("#intentAsk").replaceChildren();
-  const r = await api("run", { path, intent });
+  const r = await api("run", { path, intent, values });
   if (r.error) tl.prepend(el("div", { class: "msg error" }, r.error));
 }
 document.querySelectorAll(".action").forEach(b => b.onclick = () => start(b.dataset.intent));
@@ -220,9 +227,9 @@ async function askText() {
   const text = $("#said").value.trim(); if (!text) return;
   const box = $("#intentAsk"); box.replaceChildren(el("div", { class: "thinking" }, el("span", { class: "spin" }), "Understanding what you mean…"));
   const r = await api("intent", { text });
-  if (r.refused) return box.replaceChildren(el("div", { class: "msg warn" }, r.refused));
+  if (r.refused) return box.replaceChildren(el("div", { class: r.blocked ? "msg error" : "msg warn" }, r.refused, r.blocked ? el("div", { style: "margin-top:6px;font-size:13px" }, "Nothing was run.") : ""));
   if (!r.intent) return box.replaceChildren(el("div", { class: "msg warn" }, `I'm not sure what you want to do with "${text}". Nothing was changed. Try one of the buttons above.`));
-  if (r.direct) return start(r.intent);
+  if (r.direct) return start(r.intent, r.values);
   box.replaceChildren(el("div", { class: "msg info" }, "Sounds like you want to ", el("b", {}, r.words), ". Right?  ",
     el("button", { class: "primary", onclick: () => start(r.intent) }, "Yes"), " ",
     el("button", { onclick: () => box.replaceChildren() }, "No")));
@@ -242,11 +249,12 @@ const questions = new Map(); // id -> element to remove when answered
 function render(ev) {
   switch (ev.type) {
     case "start":
-      tl.replaceChildren(); plan = null; conflictCard = null; setBusy(true);
+      tl.replaceChildren(); plan = null; conflictCard = null; setBusy(true); curIntent = ev.intent;
       tl.append(el("div", { class: "muted", style: "margin:4px 4px 12px" }, `You asked to ${ev.words} in ${ev.path}`)); break;
     case "show":
       card(ev.round === 1 ? "📍 Here's where you are" : "🔄 Checking again…",
-        el("ul", { class: "facts" }, ev.facts.map(f => el("li", {}, f))), ev.warnings.map(w => el("div", { class: "warn" }, "⚠️ " + w))); break;
+        el("ul", { class: "facts" }, ev.facts.map(f => el("li", {}, f))), ev.warnings.map(w => w.startsWith("🚫") ? el("div", { class: "warn block" }, w) : el("div", { class: "warn" }, "⚠️ " + w))); break;
+    case "blocked": plan = { steps: [], blocked: true }; break;
     case "plan": {
       const steps = ev.steps.map(s => {
         const li = el("li", { class: "step" },
@@ -327,10 +335,10 @@ function render(ev) {
     }
     case "output": runningStep?.querySelector("details pre")?.append(ev.text); break;
     case "say": {
-      if (ev.text === "✓ done" && runningStep) { runningStep.classList.remove("active"); runningStep.classList.add("done"); runningStep.querySelector(".run")?.remove(); runningStep = null; break; }
+      if (ev.text === "✓ done" && runningStep) { const pre = runningStep.querySelector("details pre"); if (pre && !pre.textContent.trim()) pre.textContent = "(git printed nothing. That's normal for this step. It worked.)"; runningStep.classList.remove("active"); runningStep.classList.add("done"); runningStep.querySelector(".run")?.remove(); runningStep = null; break; }
       if (runningStep && ev.kind === "warn") { runningStep.classList.remove("active"); runningStep.classList.add("failed"); runningStep.querySelector(".run")?.remove(); runningStep = null; }
       if (/^Step \d+: /.test(ev.text)) break; // the plan card already shows this
-      if (ev.text.startsWith("All done")) { tl.append(el("div", { class: "banner" }, "🎉 All done! Your work is safe and in sync.")); break; }
+      if (ev.text.startsWith("All done")) { tl.append(el("div", { class: "banner" }, DONE[curIntent] || "🎉 All done! Your work is safe and in sync.")); break; }
       if (ev.text.startsWith("✓ Saved") && conflictCard) {
         conflictCard.card.append(el("div", { class: "msg ok" }, ev.text));
         plan?.steps.find(li => li.querySelector("b") && !li.classList.contains("done"))?.classList.add("done"); break; }
@@ -355,7 +363,8 @@ function render(ev) {
         ...ev.picked.map(t => el("pre", { style: "background:#f4f6f5;padding:10px;border-radius:8px;margin-top:6px" }, t || "(empty)")))); break;
     case "end":
       setBusy(false); stopThinking();
-      if (ev.ok && plan && !plan.steps.length) tl.append(plan.hint ? el("div", { class: "msg warn", style: "font-size:17px;padding:16px" }, "👉 " + plan.hint) : el("div", { class: "banner" }, "✓ Nothing to do. You're all set!"));
+      if (plan?.blocked) tl.append(el("div", { class: "banner stop" }, "🚫 Nothing was run. This one stays off-limits to protect your work."));
+      else if (ev.ok && plan && !plan.steps.length) tl.append(plan.hint ? el("div", { class: "msg warn", style: "font-size:17px;padding:16px" }, "👉 " + plan.hint) : el("div", { class: "banner" }, "✓ Nothing to do. You're all set!"));
       tl.append(el("div", { class: "row", style: "justify-content:center;margin-top:8px" },
         el("button", { onclick: () => start("status") }, "📍 Check again"))); break;
   }

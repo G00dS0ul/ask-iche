@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // ask-iche.mjs — the CLI.
 //   node ask-iche.mjs push [repo]                    (a command)
-//   commands: status save push pull resolve | stash stashes pop undo cleanup cherry-pick
+//   commands: status save push pull resolve | stash stashes pop undo cleanup cherry-pick branch log
 //   node ask-iche.mjs "my push got rejected" [repo]  (plain English)
 // Flags: --no-ai (built-in explanations only), --no-fetch
 
@@ -10,7 +10,7 @@ import { stdin, stdout } from "node:process";
 import { existsSync } from "node:fs";
 import { run } from "./runner.mjs";
 import { toFacts, nextHint } from "./collector.mjs";
-import { INTENTS } from "./rules.mjs";
+import { INTENTS, quickIntent, refuseText } from "./rules.mjs";
 import { MODEL, isAvailable, warmup, explainPlan, detectIntent, explainConflict } from "./gemma.mjs";
 import { CHOICES } from "./conflicts.mjs";
 
@@ -50,23 +50,27 @@ async function question(q) {
 const ALIASES = { sync: "push", upload: "push", update: "pull", download: "pull", commit: "save",
   fix: "resolve", conflict: "resolve", where: "status", check: "status", force: "force-push",
   stashes: "stash-list", list: "stash-list", pop: "unstash", "stash-pop": "unstash", undo: "reset", uncommit: "reset",
-  cleanup: "rebase", "clean-up": "rebase", squash: "rebase", "cherry": "cherry-pick", pick: "cherry-pick", copy: "cherry-pick" };
-let intent = ALIASES[said.toLowerCase()] || (INTENTS.includes(said.toLowerCase()) ? said.toLowerCase() : null);
+  cleanup: "rebase", "clean-up": "rebase", squash: "rebase", "cherry": "cherry-pick", pick: "cherry-pick", copy: "cherry-pick",
+  branches: "branch", switch: "branch", checkout: "branch", history: "log" };
+const no = refuseText(said); // hard safety blocks first: nothing runs
+if (no?.refused) { console.log(c.red(no.refused)); console.log(c.dim("Nothing was run.")); rl.close(); process.exit(1); }
+const quick = no?.intent ? no : quickIntent(said);
+let intent = quick?.intent || ALIASES[said.toLowerCase()] || (INTENTS.includes(said.toLowerCase()) ? said.toLowerCase() : null);
 
 if (!intent) {
   if (["revert"].includes(said.toLowerCase())) {
-    console.log(c.yellow(`Reverting pushed commits isn't in Ask Iche yet. Try "undo" for commits you haven't pushed, or ask the real Iche. 😅`));
+    console.log(c.yellow(`Reverting pushed commits isn't in Ask Iche yet. Try "undo" for commits you haven't pushed, or message Iche (the human one 😄).`));
     rl.close(); process.exit(1);
   }
   const d = ai.up && ai.hasModel ? await detectIntent(said) : await detectIntent(said).catch(() => ({ intent: null }));
   if (!d.intent) {
     console.log(c.yellow(`I'm not sure what you want to do with "${said}".`) + " Nothing was changed.");
-    console.log("Try: " + ["status", "save", "push", "pull", "resolve", "stash", "stashes", "pop", "undo", "cleanup", "cherry-pick"].map(c.bold).join(", ") + c.dim(`  or describe it, e.g. "my push got rejected"`));
+    console.log("Try: " + ["status", "save", "push", "pull", "resolve", "stash", "stashes", "pop", "undo", "cleanup", "cherry-pick", "branch", "log"].map(c.bold).join(", ") + c.dim(`  or describe it, e.g. "my push got rejected"`));
     rl.close(); process.exit(1);
   }
   const words = { status: "check where you are", save: "save (commit) your work", push: "push your work", pull: "get the latest changes", resolve: "fix a conflict", "force-push": "force push",
     stash: "stash (put aside) your unfinished work", "stash-list": "see your stash list", unstash: "bring back stashed work", reset: "undo commits",
-    rebase: "clean up your branch for review", "cherry-pick": "copy a commit from another branch" };
+    rebase: "clean up your branch for review", "cherry-pick": "copy a commit from another branch", branch: "work with branches", log: "see the commit history" };
   const ok = (await question(`Sounds like you want to ${c.bold(words[d.intent])}. Right? ${c.dim("[Y/n] ")}`)).trim().toLowerCase();
   if (ok === "n" || ok === "no" || (ok === "" && inputClosed)) { console.log("Okay! Try saying it another way, or use: status, save, push, pull, resolve, stash, stashes, pop, undo, cleanup, cherry-pick."); rl.close(); process.exit(1); }
   intent = d.intent;
@@ -110,7 +114,7 @@ const ui = {
     console.log(c.green(`  ① Yours (${labels.mine}):`)); block(k.mine, c.green);
     console.log(c.cyan(`  ② Theirs (${labels.theirs}):`)); block(k.theirs, c.cyan);
     if (ai.up && ai.hasModel) {
-      process.stdout.write(c.dim(`\n  Ask Iche is reading both versions… (${MODEL})`));
+      process.stdout.write(c.dim(`\n  Iche is reading both versions… (${MODEL})`));
       let first = true;
       const r = await explainConflict(file, k, { onLine: (key, t) => {
         if (first) { process.stdout.write("\r\x1b[K"); first = false; }
@@ -130,15 +134,16 @@ const ui = {
   show: async (p, st, round) => {
     console.log("\n" + c.bold(round === 1 ? "Here's where you are:" : "Checking again..."));
     toFacts(st).forEach(f => console.log(c.dim("  • " + f)));
-    p.warnings.forEach(w => console.log(c.yellow("⚠️  " + w)));
+    p.warnings.forEach(w => console.log(w.startsWith("🚫") ? c.red(w) : c.yellow("⚠️  " + w)));
   },
 };
 
 async function explain(p, st) {
+  if (p.blocked) return; // refusal already printed; nothing to explain or run
   const facts = toFacts(st);
   const done = () => { const h = nextHint(st); console.log(h ? c.yellow("\n👉 " + h.replace(/"(Save my work|Upload my work|Get latest|Fix a conflict|Bring back stashed work)"/g, (_, l) => `"ask-iche ${({ "Save my work": "save", "Upload my work": "push", "Get latest": "pull", "Fix a conflict": "resolve", "Bring back stashed work": "pop" })[l]}"`)) : c.green("\nNothing to do. You're all set ✓")); };
   if (!p.steps.length && !(ai.up && ai.hasModel)) { done(); console.log(); return; }
-  if (ai.up && ai.hasModel) process.stdout.write(c.dim(`\n  Ask Iche is thinking… (${MODEL}, on your laptop)`));
+  if (ai.up && ai.hasModel) process.stdout.write(c.dim(`\n  Iche is thinking… (${MODEL}, on your laptop)`));
   let cleared = false;
   const clear = () => { if (!cleared && ai.up && ai.hasModel) { process.stdout.write("\r\x1b[K"); cleared = true; } };
   const r = await explainPlan(p, facts, {
@@ -151,6 +156,6 @@ async function explain(p, st) {
   console.log();
 }
 
-const result = await run({ cwd, intent, ui, explain, fetch: !flags.has("--no-fetch") });
+const result = await run({ cwd, intent, ui, explain, fetch: !flags.has("--no-fetch"), values: quick?.values });
 rl.close();
 process.exit(result.ok ? 0 : 1);

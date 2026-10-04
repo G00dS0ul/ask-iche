@@ -9,10 +9,10 @@ export const RISK = { SAFE: "safe", NORMAL: "normal", CAREFUL: "careful", DANGER
 
 // Intents Gemma can map her message to.
 export const INTENTS = ["status", "save", "push", "pull", "resolve", "force-push",
-  "stash", "stash-list", "unstash", "reset", "rebase", "cherry-pick"];
+  "stash", "stash-list", "unstash", "reset", "rebase", "cherry-pick", "branch", "log"];
 
 // Intents that finish after one successful pass (no "keep going until in sync").
-export const ONE_SHOT = new Set(["save", "pull", "stash", "stash-list", "unstash", "reset", "rebase", "cherry-pick"]);
+export const ONE_SHOT = new Set(["save", "pull", "stash", "stash-list", "unstash", "reset", "rebase", "cherry-pick", "branch", "log"]);
 
 // Branches nobody should ever rewrite, even with --force-with-lease.
 export const PROTECTED = /^(main|master|develop|dev|release.*|production|prod)$/;
@@ -115,9 +115,15 @@ function blockers(st) {
 
 // --- intents ----------------------------------------------------------------
 
-function planPush(st) {
+function planPush(st, values = {}) {
   const steps = [];
   const warnings = [];
+  // "push to main" while on another branch: never push into someone else's branch.
+  if (values.target && values.target !== st.branch) {
+    return { situation: "push-other-refused", steps: [], blocked: true, warnings: [
+      `🚫 Blocked. You're on ${st.branch}, and Iche only uploads a branch to its own place on GitHub, never into ${values.target}. To get your work into ${values.target}, upload your branch, then open a Pull Request on GitHub so the team can review it.`,
+    ] };
+  }
 
   if (!st.hasRemote) {
     return {
@@ -169,9 +175,11 @@ function planSave(st) {
 const STASH_ASIDE = (why = "stash") => step(["stash", "push", "-u", "-m", "{stashName}"], why, RISK.NORMAL, {
   input: { name: "stashName", prompt: "Give this stash a name, like a commit message (e.g. login-form-wip):" },
   mark: "stashed",
+  reason: "Puts your unsaved changes aside in a new stash, with the name you type. Your other stashes aren't touched.",
 });
 const STASH_BACK = () => step(["stash", "pop", "stash@{0}"], "stash-pop-mine", RISK.NORMAL, {
   mark: "popped", note: "Brings back the work you just put aside.",
+  reason: "Brings back the stash you just made (the newest one, stash@{0}) into your files.",
 });
 
 function keepWork(st, values, doing) {
@@ -180,7 +188,7 @@ function keepWork(st, values, doing) {
   if (!values.keepWork) {
     return { needs: {
       name: "keepWork",
-      prompt: `You have unsaved changes. What should Ask Iche do with them before it ${doing}?`,
+      prompt: `You have unsaved changes. What should Iche do with them before it ${doing}?`,
       options: [
         { value: "commit", label: "💾 Commit them", hint: "Save them as a commit on this branch (use this if the work is finished)" },
         { value: "stash", label: "📦 Stash them", hint: "Put them aside with a name, then bring them back right after (use this if you're not done yet)" },
@@ -207,7 +215,7 @@ function planStash(st) {
   if (!hasChanges(st)) return { situation: "nothing-to-stash", steps: [] };
   const s = STASH_ASIDE();
   delete s.mark;
-  return { situation: "stash", steps: [s] };
+  return { situation: "stash", steps: [s], summary: "You're putting your unsaved changes aside in a new stash, so your files go back to your last commit." };
 }
 
 function planStashList(st) {
@@ -230,28 +238,89 @@ function planUnstash(st, values) {
       name: "stash", prompt: "Which stash do you want back? Pick one, or type its number or name:", options: stashOptions(st), typed: true, byValue: true,
     } };
   }
-  const x = st.stashes.find(s => String(s.index) === String(values.stash));
-  if (!x) return { situation: "no-such-stash", steps: [], warnings: [`There's no stash #${values.stash}.`] };
+  const want = String(values.stash).trim().toLowerCase().replace(/^#|^stash@\{|\}$/g, "");
+  const x = st.stashes.find(s => String(s.index) === want) || st.stashes.find(s => s.name.toLowerCase() === want);
+  if (!x) {
+    return { situation: "pick-stash", steps: [], warnings: [`There's no stash called "${values.stash}". Pick one from the list.`], needs: {
+      name: "stash", prompt: "Which stash do you want back? Pick one, or type its number or name:", options: stashOptions(st), typed: true, byValue: true,
+    } };
+  }
   const warnings = [];
   if (x.branch && st.branch && x.branch !== st.branch)
     warnings.push(`"${x.name}" was stashed on branch ${x.branch}, but you're on ${st.branch}. It will be added to ${st.branch}.`);
   if (hasChanges(st))
     warnings.push("You also have unsaved changes now. If they touch the same files, git stops safely and nothing is changed.");
-  return { situation: "unstash", warnings, steps: [step(["stash", "pop", x.ref], "stash-pop", RISK.NORMAL, {
-    note: `Brings back "${x.name}" and removes it from the stash list.`,
-  })] };
+  return { situation: "unstash", warnings,
+    summary: `You're bringing back your stash "${x.name}" (${x.ref}) into your files.`,
+    context: [`She picked stash ${x.ref} named "${x.name}". Only talk about that one stash.`],
+    steps: [step(["stash", "pop", x.ref], "stash-pop", RISK.NORMAL, {
+      note: `Brings back "${x.name}" and removes it from the stash list.`,
+      reason: `Brings back "${x.name}" (${x.ref}) into your files and removes it from the stash list.`,
+    })] };
+}
+
+// "pop 0", "pop #1", "pop stash@{1}", "bring back login-form-wip", "unstash scratch-notes"
+// -> { intent: "unstash", values: { stash } } so she can skip the picker.
+export function quickIntent(text) {
+  const t = String(text || "").trim().replace(/\s+/g, " ");
+  let m = t.match(/^(?:git\s+)?(?:stash\s+)?(?:pop|unstash|bring back|apply)\s+(?:the\s+)?(?:stash\s+)?(?:called\s+|named\s+)?["']?([^"'\s]+)["']?$/i);
+  if (m) return { intent: "unstash", values: { stash: m[1] } };
+  const B = "([A-Za-z0-9._\\/-]+)";
+  const rx = s => new RegExp(s.replace(/B/g, B), "i");
+  // branches, typed as git commands
+  if ((m = t.match(rx("^git (?:checkout -b|switch -c|switch --create) B(?: (\\S+))?$"))))
+    return { intent: "branch", values: { action: "new", branch: m[1], from: m[2] && /(^|\/)(main|master)$/.test(m[2]) ? "base" : "here" } };
+  if ((m = t.match(rx("^git branch -m(?: \\S+)? B$")))) return { intent: "branch", values: { action: "rename", branch: m[1] } };
+  if ((m = t.match(rx("^git branch (?:-d|--delete) B$")))) return { intent: "branch", values: { action: "delete", target: m[1] } };
+  if ((m = t.match(rx("^git (?:checkout|switch) B$"))) && !m[1].startsWith("-")) return { intent: "branch", values: { action: "switch", to: m[1] } };
+  if ((m = t.match(rx("^git branch B$"))) && !m[1].startsWith("-")) return { intent: "branch", values: { action: "new", branch: m[1], from: "here" } };
+  if (/^git branch(?: -a| -v| -vv| --list)?$/i.test(t)) return { intent: "branch", values: { action: "switch" } };
+  // branches, in plain words
+  if ((m = t.match(rx("^(?:switch|go|move|change|checkout)(?: back)? (?:to )?(?:the )?(?:branch )?B(?: branch)?$"))) && !/^(branch|another|a|other)$/i.test(m[1]))
+    return { intent: "branch", values: { action: "switch", to: m[1] } };
+  if ((m = t.match(rx("^(?:create|make|start|new)(?: a)?(?: new)? branch(?: called| named)? B$")))) return { intent: "branch", values: { action: "new", branch: m[1] } };
+  if ((m = t.match(rx("^(?:delete|remove)(?: the)? branch B$")))) return { intent: "branch", values: { action: "delete", target: m[1] } };
+  if ((m = t.match(rx("^rename(?: my| this| the)?(?: branch)? to B$")))) return { intent: "branch", values: { action: "rename", branch: m[1] } };
+  // history
+  if ((m = t.match(/^git log\b(.*)$/i))) {
+    const rest = m[1].trim().split(" ").filter(Boolean);
+    const ref = rest.find(x => !x.startsWith("-"));
+    return { intent: "log", values: { ...(rest.includes("--oneline") ? { style: "oneline" } : {}), ...(ref ? { ref } : {}) } };
+  }
+  return null;
 }
 
 // --- undo commits (reset) ----------------------------------------------------
-const stamp = () => new Date().toISOString().slice(0, 16).replace(/\D/g, "");
+// Local time (her clock), e.g. 202610041021
+const stamp = (d = new Date()) => [d.getFullYear(), d.getMonth() + 1, d.getDate(), d.getHours(), d.getMinutes()].map(n => String(n).padStart(2, "0")).join("");
+
+// A backup branch, unless she already has one of exactly this commit (no clutter).
+function backupStep(st, extra = {}) {
+  const same = (st.backups || []).find(b => st.headHash && b.name.startsWith(`backup/${st.branch}-`) && (b.hash.startsWith(st.headHash) || st.headHash.startsWith(b.hash)));
+  if (same) return { step: null, warning: `You already have a backup of exactly this state: ${same.name}. Iche will use that one instead of making another.` };
+  const name = `backup/${st.branch || "detached"}-${stamp()}`;
+  return { step: step(["branch", name], "backup", RISK.NORMAL, {
+    reason: `Makes a safety copy of your branch called ${name}. It does not switch branches.`, ...extra,
+  }) };
+}
 
 function planReset(st, values) {
   if (st.noCommitsYet || !st.recentCommits.length) return { situation: "nothing-to-undo", steps: [] };
   const local = [];
-  for (const c of st.recentCommits) { if (c.pushed) break; local.push(c); }
+  let stoppedAtMerge = null;
+  for (const c of st.recentCommits) {
+    if (c.pushed) break;
+    if (c.merge) { stoppedAtMerge = c; break; } // undoing a merge also undoes the teammates' work it brought in
+    local.push(c);
+  }
+  if (!local.length && stoppedAtMerge) {
+    return { situation: "undo-merge-refused", steps: [], warnings: [
+      `Your latest commit is a merge ("${stoppedAtMerge.message}"). Undoing it would also undo the teammates' work it brought in, so Iche won't do it here. Message Iche (the human one 😄) for this one.`,
+    ] };
+  }
   if (!local.length) {
     return { situation: "undo-pushed-refused", steps: [], warnings: [
-      `Your latest commit (${st.recentCommits[0].hash} "${st.recentCommits[0].message}") is already on GitHub. Undoing it here would need a force push, which can delete your teammates' work, so Ask Iche won't do it. Ask the real Iche about "git revert" for this one.`,
+      `Your latest commit (${st.recentCommits[0].hash} "${st.recentCommits[0].message}") is already on GitHub. Undoing it here would need a force push, which can delete your teammates' work, so Iche won't do it. Message Iche (the human one 😄) about "git revert" for this one.`,
     ] };
   }
   if (values.count === undefined) {
@@ -262,7 +331,8 @@ function planReset(st, values) {
         label: `Undo the last ${i + 1}: ${local.slice(0, i + 1).map(x => `"${x.message}"`).join(", ")}`,
         hint: local.slice(0, i + 1).map(x => x.hash).join(" "),
       })),
-      note: local.length < st.recentCommits.length ? "Only commits that aren't on GitHub yet are shown. Pushed ones can't be undone safely." : null,
+      note: stoppedAtMerge ? `The list stops at the merge commit ("${stoppedAtMerge.message.slice(0, 60)}"). Undoing a merge would also undo your teammates' work, so it isn't offered.`
+        : local.length < st.recentCommits.length ? "Only commits that aren't on GitHub yet are shown. Pushed ones can't be undone safely." : null,
     } };
   }
   const n = Math.max(1, Math.min(local.length, Number(values.count) || 1));
@@ -280,9 +350,8 @@ function planReset(st, values) {
   const steps = [];
   const warnings = [];
   if (mode === "hard") {
-    steps.push(step(["branch", `backup/${st.branch || "detached"}-${stamp()}`], "backup", RISK.NORMAL, {
-      note: "Safety net: keeps a copy of your commits so this undo can be undone.",
-    }));
+    const b = backupStep(st, { note: "Safety net: keeps a copy of your commits so this undo can be undone." });
+    if (b.step) steps.push(b.step); else warnings.push(b.warning);
     const lost = [...new Set([...paths(st.staged), ...paths(st.unstaged)])]; // untracked files survive reset --hard
     if (lost.length) {
       warnings.push(`Hard reset also deletes your unsaved changes in: ${lost.slice(0, 5).join(", ")}${lost.length > 5 ? ` (+${lost.length - 5} more)` : ""}. The backup branch can't save those. Stash them first if you want to keep them.`);
@@ -292,12 +361,14 @@ function planReset(st, values) {
     dangerOk: mode === "hard",
     note: `Undoes: ${local.slice(0, n).map(x => `"${x.message}"`).join(", ")}`,
   }));
-  return { situation: `undo-${mode}`, steps, warnings };
+  const backupName = steps[0]?.args?.[0] === "branch" ? steps[0].args[1] : (warnings.join(" ").match(/backup\/\S+?(?=\.?\s|\.$|$)/) || [])[0];
+  const tip = mode === "hard" && backupName ? `Changed your mind? Your backup branch ${backupName} still has those commits.` : null;
+  return { situation: `undo-${mode}`, steps, warnings, ...(tip ? { tip } : {}) };
 }
 
 // --- clean up for review (rebase onto main, optional squash) -----------------
 function planRebase(st, values) {
-  if (!st.base) return { situation: "no-base", steps: [], warnings: ["Ask Iche couldn't find a main branch (like origin/main) to clean up against."] };
+  if (!st.base) return { situation: "no-base", steps: [], warnings: ["Iche couldn't find a main branch (like origin/main) to clean up against."] };
   if (st.onBase || PROTECTED.test(st.branch || ""))
     return { situation: "on-main", steps: [], warnings: [`You're on ${st.branch}. Clean-up is for your own feature branch, not the shared one. Switch to your branch first.`] };
   if (!st.aheadBase && !values.rebased) return { situation: "nothing-to-clean", steps: [] };
@@ -318,14 +389,17 @@ function planRebase(st, values) {
   }
 
   const steps = [...k.before];
+  const cleanWarnings = [];
   const remote = st.remotes.includes("origin") ? "origin" : st.remotes[0];
   if (!values.rebased) {
-    if (!values.backedUp) steps.push(step(["branch", `backup/${st.branch}-${stamp()}`], "backup", RISK.NORMAL, {
-      mark: "backedUp", note: "Safety net: a copy of your branch exactly as it is now.",
-    }));
+    if (!values.backedUp) {
+      const b = backupStep(st, { mark: "backedUp", note: "Safety net: a copy of your branch exactly as it is now." });
+      if (b.step) steps.push(b.step); else cleanWarnings.push(b.warning);
+    }
     if (values.style === "squash" && st.mergeBase) {
       steps.push(step(["reset", "--soft", st.mergeBase.slice(0, 12)], "squash-reset", RISK.CAREFUL, {
         note: `Un-commits your ${n} commits but keeps every change staged.`,
+        reason: `Un-commits your ${n} commits but keeps every change staged, so they can become one commit. Nothing is lost.`,
       }));
       steps.push(step(["commit", "-m", "{message}"], "squash-commit", RISK.NORMAL, {
         input: { name: "message", prompt: "Message for your one clean commit (what does this branch do?):" },
@@ -351,7 +425,7 @@ function planRebase(st, values) {
       steps.push(step(["push", "-u", remote, st.branch], "push-new-branch"));
     }
   }
-  return { situation: values.style === "squash" ? "clean-squash" : "clean-rebase", steps };
+  return { situation: values.style === "squash" ? "clean-squash" : "clean-rebase", steps, warnings: cleanWarnings };
 }
 
 // --- copy a commit from another branch (cherry-pick) ------------------------
@@ -380,11 +454,211 @@ function planCherryPick(st, values) {
   if (!c) return { situation: "nothing-to-pick", steps: [], warnings: [`Couldn't find commit ${values.commit} on ${values.from}.`] };
   const k = keepWork(st, values, "copies the commit");
   if (k.needs) return { situation: "pick-with-changes", steps: [], needs: k.needs };
-  return { situation: "cherry-pick", steps: [
+  return { situation: "cherry-pick", context: [`She is copying commit ${c.hash} ("${c.message}") FROM branch ${values.from} ONTO her branch ${st.branch}.`], steps: [
     ...k.before,
-    step(["cherry-pick", c.hash], "cherry-pick", RISK.NORMAL, { mark: "picked", note: `Copies "${c.message}" onto ${st.branch} as a new commit.` }),
+    step(["cherry-pick", c.hash], "cherry-pick", RISK.NORMAL, { mark: "picked", note: `Copies "${c.message}" onto ${st.branch} as a new commit.`,
+      reason: `Copies commit ${c.hash} ("${c.message}") from ${values.from} onto ${st.branch} as a new commit.` }),
     ...k.after,
   ] };
+}
+
+// --- branches: switch / new / rename / delete --------------------------------
+const branchOpts = (list, hint) => list.map(b => ({ value: b, label: b, hint, aliases: [b] }));
+
+function planBranch(st, values) {
+  if (!values.action) {
+    return { situation: "pick-branch-action", steps: [], needs: {
+      name: "action", prompt: `You're on ${st.branch || "no branch"}. What do you want to do?`,
+      options: [
+        { value: "switch", label: "🔀 Switch to another branch", hint: "Go to a branch on your laptop or on GitHub" },
+        { value: "new", label: "🌱 Create a new branch", hint: "Start a fresh branch for new work" },
+        { value: "rename", label: `✏️ Rename ${st.branch || "this branch"}`, hint: "Give this branch a better name" },
+        { value: "delete", label: "🗑️ Delete a branch", hint: "Remove a branch you don't need (also old backup/ copies)" },
+      ],
+    } };
+  }
+  const exists = b => st.localBranches.includes(b) || st.backups.some(x => x.name === b);
+  const warnings = [];
+
+  if (values.action === "switch") {
+    if (values.to && values.to === st.branch) { warnings.push(`You're already on ${st.branch}.`); delete values.to; }
+    if (values.to && !exists(values.to) && !st.remoteOnly.includes(values.to.replace(/^origin\//, ""))) {
+      warnings.push(`There's no branch called "${values.to}". Pick one from the list.`); delete values.to;
+    }
+    if (!values.to) {
+      const mine = st.localBranches.filter(b => b !== st.branch);
+      const opts = [...branchOpts(mine, "on your laptop"), ...branchOpts(st.remoteOnly, "on GitHub (Iche makes a local copy)")];
+      if (!opts.length) return { situation: "no-other-branches", steps: [], warnings: ["There's no other branch to switch to. Create one with 🌱 Create a new branch."] };
+      return { situation: "pick-switch", steps: [], warnings, needs: { name: "to", prompt: "Which branch do you want to go to?", options: opts, typed: true } };
+    }
+    const to = values.to.replace(/^origin\//, "");
+    if (hasChanges(st) && !values.keepWork) {
+      return { situation: "switch-with-changes", steps: [], warnings, needs: {
+        name: "keepWork", prompt: `You have unsaved changes on ${st.branch}. What should Iche do with them before switching to ${to}?`,
+        options: [
+          { value: "stash", label: "📦 Stash them here", hint: `Put them aside with a name. Bring them back when you return to ${st.branch}.` },
+          { value: "commit", label: "💾 Commit them", hint: `Save them as a commit on ${st.branch} first` },
+          { value: "carry", label: `🎒 Take them with me to ${to}`, hint: "Git only allows this if they don't clash with that branch. If they do, it stops safely." },
+        ],
+      } };
+    }
+    const before = !hasChanges(st) || values.keepWork === "carry" ? [] : values.keepWork === "stash" ? [STASH_ASIDE()] : saveSteps(st);
+    if (values.keepWork === "stash") warnings.push(`After switching, your stashed work stays in the stash list. When you come back to ${st.branch}, use 📤 Bring back stashed work.`);
+    const remote = !exists(to);
+    const kept = values.keepWork === "stash" ? " Your unsaved changes go into a stash first." : values.keepWork === "commit" ? " Your unsaved changes are committed first." : values.keepWork === "carry" ? " Your unsaved changes come with you." : "";
+    return { situation: "switch", warnings, summary: `You're switching from ${st.branch} to ${to}.${kept}`, steps: [...before, step(["switch", to], "switch", RISK.NORMAL, {
+      note: remote ? `Makes a local copy of origin/${to} and switches to it.` : `Moves you to ${to}. Your files change to match that branch.`,
+      reason: remote ? `Makes your own copy of ${to} from GitHub and switches you to it.` : `Switches you from ${st.branch} to ${to}. Your files change to match ${to}; nothing is lost.`,
+    })] };
+  }
+
+  if (values.action === "new") {
+    if (values.branch && (validateBranchName(values.branch) || exists(values.branch))) {
+      warnings.push(exists(values.branch) ? `A branch called "${values.branch}" already exists. Choose another name.` : `"${values.branch}" can't be a branch name. ${validateBranchName(values.branch)}`);
+      delete values.branch;
+    }
+    if (!values.from) {
+      if (!st.base || st.onBase) values.from = "here";
+      else return { situation: "pick-new-from", steps: [], warnings, needs: {
+        name: "from", prompt: "Where should the new branch start?",
+        options: [
+          { value: "base", label: `🆕 From the latest ${st.base}`, hint: "Best for new, separate work" },
+          { value: "here", label: `📍 From here (${st.branch})`, hint: `Keeps everything that's on ${st.branch} now` },
+        ],
+      } };
+    }
+    const args = ["switch", "-c", "{branch}", ...(values.from === "base" ? ["--no-track", st.base] : [])];
+    const from = values.from === "base" ? `the latest ${st.base}` : st.branch;
+    // From here, unsaved changes always come along. From origin/main they can clash, so ask first.
+    if (values.from === "base" && hasChanges(st) && !values.keepWork) {
+      return { situation: "new-branch-with-changes", steps: [], warnings, needs: {
+        name: "keepWork", prompt: `You have unsaved changes on ${st.branch}. What should Iche do with them before starting the new branch from ${st.base}?`,
+        options: [
+          { value: "stash", label: "📦 Stash them here", hint: `Put them aside with a name. Bring them back when you return to ${st.branch}.` },
+          { value: "commit", label: "💾 Commit them", hint: `Save them as a commit on ${st.branch} first` },
+          { value: "carry", label: "🎒 Take them with me", hint: `Git only allows this if they don't clash with ${st.base}. If they do, it stops safely.` },
+        ],
+      } };
+    }
+    const before = values.from !== "base" || !hasChanges(st) || values.keepWork === "carry" ? [] : values.keepWork === "stash" ? [STASH_ASIDE()] : saveSteps(st);
+    if (hasChanges(st)) {
+      if (values.from !== "base") warnings.push("Your unsaved changes come with you to the new branch.");
+      else if (values.keepWork === "carry") warnings.push(`Your unsaved changes come with you. If they clash with ${st.base}, git stops safely and nothing changes.`);
+      else if (values.keepWork === "stash") warnings.push(`Your stashed work stays in the stash list. When you come back to ${st.branch}, use 📤 Bring back stashed work.`);
+    }
+    return { situation: "new-branch", warnings,
+      summary: `You're making a new branch, with the name you type, starting from ${from}, and switching to it.${values.from === "base" ? ` It isn't linked to GitHub yet. That happens the first time you upload it.` : ""}`,
+      tip: "Short names with a slash work well, like feature/login-fix or fix/typo.",
+      context: [`The new branch starts from ${from}${values.from === "base" ? " (not from the current branch)" : ""}. She types the name herself, so don't invent one. It does not track any remote branch yet.`],
+      steps: [...before, step(args, "new-branch", RISK.NORMAL, {
+      input: { name: "branch", prompt: "Name for the new branch (e.g. feature/login-fix):" },
+      note: `Starts from ${from} and switches you to it.`,
+      reason: `Creates a new branch starting from ${from} and switches you to it.`,
+    })] };
+  }
+
+  if (values.action === "rename") {
+    if (!st.branch || PROTECTED.test(st.branch))
+      return { situation: "rename-refused", steps: [], blocked: true, warnings: [`🚫 ${st.branch || "This"} is a shared branch, so Iche won't rename it. Everyone else's setup points at that name.`] };
+    if (values.branch && (validateBranchName(values.branch) || exists(values.branch))) {
+      warnings.push(exists(values.branch) ? `A branch called "${values.branch}" already exists. Choose another name.` : `"${values.branch}" can't be a branch name. ${validateBranchName(values.branch)}`);
+      delete values.branch;
+    }
+    if (st.upstream) warnings.push(`${st.branch} is already on GitHub. Renaming here doesn't rename it there. Next time you upload, it goes up under the new name, and you can delete the old one on GitHub.`);
+    return { situation: "rename-branch", warnings, summary: `You're giving ${st.branch} a new name. Your commits stay the same.`, steps: [step(["branch", "-m", "{branch}"], "rename-branch", RISK.NORMAL, {
+      input: { name: "branch", prompt: `New name for ${st.branch}:` },
+      reason: `Renames your branch ${st.branch} to the new name. Your commits stay exactly the same.`,
+    })] };
+  }
+
+  if (values.action === "delete") {
+    const can = b => b !== st.branch && !PROTECTED.test(b);
+    if (values.target && (!exists(values.target) || !can(values.target))) {
+      warnings.push(!exists(values.target) ? `There's no branch called "${values.target}" on your laptop.`
+        : values.target === st.branch ? `You can't delete the branch you're on (${st.branch}). Switch to another branch first.`
+        : `🚫 ${values.target} is a shared branch, so Iche won't delete it.`);
+      delete values.target;
+    }
+    if (!values.target) {
+      const opts = [...branchOpts(st.localBranches.filter(can), "on your laptop"),
+        ...st.backups.map(b => ({ value: b.name, label: b.name, hint: "safety copy made by Iche", aliases: [b.name] }))];
+      if (!opts.length) return { situation: "nothing-to-delete", steps: [], warnings: [...warnings, "There's no branch you can delete. (Iche never deletes the branch you're on, or shared ones like main.)"] };
+      return { situation: "pick-delete", steps: [], warnings, needs: { name: "target", prompt: "Which branch do you want to delete? (Only on your laptop. GitHub isn't touched.)", options: opts, typed: true } };
+    }
+    const backup = values.target.startsWith("backup/");
+    return { situation: "delete-branch",
+      summary: backup ? `You're deleting the safety copy ${values.target} from your laptop.` : `You're deleting ${values.target} from your laptop. GitHub isn't touched.`,
+      tip: backup ? "Only delete backups you're sure you won't need to undo with." : "If git says the branch isn't fully merged, it still has work you'd lose, so it's kept safe.",
+      warnings: backup ? [`${values.target} is a safety copy. Once it's deleted, you can't use it to undo anymore.`] : [],
+      steps: [step(["branch", backup ? "-D" : "-d", values.target], "delete-branch", backup ? RISK.DANGEROUS : RISK.CAREFUL, {
+        dangerOk: backup,
+        note: backup ? "Deletes this safety copy from your laptop." : "Safe delete: git refuses if this branch has work that isn't merged anywhere.",
+        reason: backup ? `Deletes the safety copy ${values.target} from your laptop.` : `Deletes ${values.target} from your laptop only. Git refuses if it has commits that aren't merged anywhere, so nothing is lost by accident.`,
+      })] };
+  }
+  return { situation: "status", steps: [] };
+}
+
+function validateBranchName(v) {
+  if (/\s/.test(v)) return "Branch names can't have spaces. Try dashes, like fix-login.";
+  if (!/^[A-Za-z0-9._\/-]+$/.test(v) || v.startsWith("-") || v.includes("..") || v.endsWith("/") || v.endsWith(".lock") || v.startsWith("backup/"))
+    return "Use letters, numbers, dashes, dots or slashes only (e.g. feature/login-fix).";
+  return null;
+}
+
+// --- history (git log) ---------------------------------------------------------
+function planLog(st, values) {
+  if (st.noCommitsYet) return { situation: "no-commits", steps: [] };
+  const remote = st.remotes.includes("origin") ? "origin" : st.remotes[0];
+  const refs = [
+    { value: "HEAD", label: `📍 This branch (${st.branch || "where you are"})`, hint: "Your commits on your laptop" },
+    ...(st.upstream ? [{ value: st.upstream, label: `☁️ GitHub's copy (${st.upstream})`, hint: "What's uploaded so far" }] : []),
+    ...(st.base && st.base !== st.upstream ? [{ value: st.base, label: `🏠 Main (${st.base})`, hint: "The team's shared branch" }] : []),
+  ];
+  if (values.ref && values.ref !== "HEAD" && !refs.some(r => r.value === values.ref) &&
+      !st.localBranches.includes(values.ref) && !st.branches.includes(values.ref) && !st.remoteOnly.includes(values.ref)) {
+    const w = [`There's no branch called "${values.ref}". Pick one from the list.`]; delete values.ref;
+    return { situation: "pick-log", steps: [], warnings: w, needs: { name: "ref", prompt: "Whose history do you want to see?", options: refs, typed: true } };
+  }
+  if (!values.ref) return { situation: "pick-log", steps: [], needs: { name: "ref", prompt: "Whose history do you want to see? (or type any branch name)", options: refs, typed: true } };
+  if (!values.style) return { situation: "pick-log", steps: [], needs: {
+    name: "style", prompt: "How much detail?",
+    options: [
+      { value: "oneline", label: "📄 One line each", hint: "Quick list: short id + message (last 20)" },
+      { value: "detailed", label: "📖 Detailed", hint: "Who, when, message and which files changed (last 10)" },
+    ],
+  } };
+  const ref = values.ref;
+  const args = values.style === "oneline" ? ["log", "--oneline", "--decorate", "-20", ref] : ["log", "--stat", "--date=relative", "-10", ref];
+  const name = ref === "HEAD" ? st.branch || "this branch" : ref;
+  return { situation: "log", context: [`She is looking at the commit history of ${name}${remote && ref.startsWith(remote + "/") ? " (the copy on GitHub)" : ""}.`],
+    steps: [step(args, "log", RISK.SAFE, { reason: values.style === "oneline"
+      ? `Lists the last 20 commits on ${name}, one line each (short id + message). Read-only, nothing changes.`
+      : `Shows the last 10 commits on ${name} with author, time and the files each one changed. Read-only, nothing changes.` })] };
+}
+
+// --- hard safety refusals for what she TYPES (checked before anything else) ----
+export const FORCE_REFUSED = "🚫 Blocked. Iche never force-pushes: it can delete your teammates' work on GitHub. If your push was rejected, use ⬇️ Get latest and then ⬆️ Upload my work. If you cleaned up your branch, 🧹 Clean up for review uploads it safely with --force-with-lease, on your own branch only.";
+const BLOCKS = [
+  [/\bpush\b.*(\s--force(?!-with-lease)\b|\s-f\b|\s--mirror\b|\s\+\S)|\bforce[\s-]*push|\bpush[\s-]*(--)?force(?!-with-lease)|\bforce\b.*\b(upload|overwrite)\b|overwrite (the )?(remote|github|origin)/i, FORCE_REFUSED],
+  [/\brebase\b.*(\s-i\b|--interactive|--root|--exec|\s-x\b)|interactive rebase/i,
+    "🚫 Blocked. Interactive rebase opens an editor full of commands, and one wrong word can drop commits. Iche doesn't do it. To combine commits, use 🧹 Clean up for review → Squash into 1 commit. To undo commits, use ↩️ Undo commits."],
+  [/\bclean\b.*\s-\w*f/i, "🚫 Blocked. git clean deletes new files permanently (they don't go to the recycle bin). Iche won't run it. Use 📦 Stash my work to put them aside instead."],
+  [/\bbranch\s+(-D\b|--delete\s+--force|-d\s+-f\b|-df\b)/, "🚫 Blocked. Force-deleting a branch can throw away commits that only live there. Use 🌿 Branches → Delete a branch: it uses the safe delete, which refuses if work would be lost."],
+  [/\bpush\b.*(\s--delete\b|\s-d\b|\s:\S)/i, "🚫 Blocked. Iche doesn't delete branches on GitHub. Do it on GitHub's Branches page, where you can see exactly what you're deleting."],
+  [/\b(checkout|restore)\b.*\s(\.|--\s+\.)\s*$|discard (all )?(my )?(changes|work)|throw away (my )?(changes|work)/i, "🚫 Blocked. That throws away your unsaved changes for good. Use 📦 Stash my work to put them aside instead, so you can get them back."],
+  [/\bcommit\b.*--amend/i, "🚫 Blocked. --amend rewrites a commit, which breaks things if it's already on GitHub. To change your last commit, use ↩️ Undo commits → Soft, then save again."],
+  [/\breset\b.*--hard\s+(origin|upstream)\//i, "🚫 Blocked. That throws away all your local commits and changes to match GitHub. Use ↩️ Undo commits instead: it shows exactly what will go and makes a backup first."],
+];
+const PUSH_PROTECTED = /\bpush\b.*?(?:\bto\b|\binto\b|\bonto\b|\borigin\b|:)\s*(?:the\s+)?(?:origin\s+|origin\/)?(main|master|develop|dev|production|prod|release\S*)\b/i;
+
+// -> { refused } | { intent, values } | null
+export function refuseText(text) {
+  const t = String(text || "").trim();
+  for (const [re, msg] of BLOCKS) if (re.test(t)) return { refused: msg };
+  const m = t.match(PUSH_PROTECTED);
+  if (m) return { intent: "push", values: { target: m[1].toLowerCase() } };
+  return null;
 }
 
 // --- main entry -------------------------------------------------------------
@@ -396,7 +670,7 @@ export function plan(st, intent = "status", values = {}) {
   if (blocked) {
     const warnings = [...(blocked.warnings || [])];
     if (intent === "force-push")
-      warnings.unshift("Force push can delete your teammates' work, so Ask Iche won't do it. Let's fix this first, then push safely.");
+      warnings.unshift("Force push can delete your teammates' work, so Iche won't do it. Let's fix this first, then push safely.");
     return { ...base, ...blocked, warnings };
   }
 
@@ -416,7 +690,9 @@ export function plan(st, intent = "status", values = {}) {
 
   let r;
   switch (intent) {
-    case "push": r = planPush(st); break;
+    case "push": r = planPush(st, values); break;
+    case "branch": r = planBranch(st, values); break;
+    case "log": r = planLog(st, values); break;
     case "pull": r = planPull(st, values); break;
     case "stash": r = planStash(st); break;
     case "stash-list": r = planStashList(st); break;
@@ -426,13 +702,8 @@ export function plan(st, intent = "status", values = {}) {
     case "cherry-pick": r = planCherryPick(st, values); break;
     case "save": r = planSave(st); break;
     case "force-push":
-      // The trap: never plan a force push. Offer the safe push instead.
-      r = planPush(st);
-      r.situation = "force-push-refused";
-      r.warnings = [
-        "Force push can delete your teammates' work on the remote, so Ask Iche won't do it. Here's the safe way instead.",
-        ...(r.warnings || []),
-      ];
+      // The trap: never plan a force push. Hard stop, nothing to click.
+      r = { situation: "force-push-refused", steps: [], blocked: true, warnings: [FORCE_REFUSED] };
       break;
     case "resolve":
       r = { situation: "no-conflicts", steps: [] };
@@ -458,5 +729,5 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   p.steps.forEach((s, i) => console.log(`${i + 1}. [${s.risk}] ${s.display}${s.note ? "   (" + s.note + ")" : ""}`));
   if (!p.steps.length) console.log("(no steps needed)");
   p.alternatives.forEach(a => console.log(`   alt: [${a.risk}] ${a.display}`));
-  if (p.thenRetry) console.log("→ After these steps, Ask Iche checks again and continues.");
+  if (p.thenRetry) console.log("→ After these steps, Iche checks again and continues.");
 }
