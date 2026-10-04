@@ -1,8 +1,8 @@
 // gemma.mjs — the "nurse". Gemma (via Ollama) only EXPLAINS steps the rules engine chose,
-// and helps understand what she typed. If Ollama isn't running, Ask Ise still works
+// and helps understand what she typed. If Ollama isn't running, Ask Iche still works
 // with built-in explanations.
 
-export const MODEL = process.env.ASK_ISE_MODEL || "gemma3:4b";
+export const MODEL = process.env.ASK_ICHE_MODEL || "gemma3:4b";
 const HOST = (process.env.OLLAMA_HOST || "http://localhost:11434").replace(/\/$/, "");
 
 // ---------- built-in explanations (fallback + safety net) ----------
@@ -12,7 +12,7 @@ export const CANNED = {
   pull: "Downloads the new commits from the remote and merges them into your branch.",
   push: "Uploads your commits to the remote so others can see them.",
   "push-new-branch": "Uploads your branch to the remote for the first time and links them, so next time plain push works.",
-  "edit-conflicts": "Ask Ise shows you both versions side by side, and you pick which one to keep. No scary markers.",
+  "edit-conflicts": "Ask Iche shows you both versions side by side, and you pick which one to keep. No scary markers.",
   "mark-resolved": "Tells git you've finished fixing the conflict in these files.",
   "finish-merge": "Completes the merge with git's default message.",
   "continue-rebase": "Continues the rebase now that the conflict is fixed.",
@@ -92,7 +92,7 @@ async function chatStream(messages, { onToken, options = {}, format } = {}) {
 }
 
 // ---------- 1) Explain a plan (streams line by line) ----------
-const EXPLAIN_SYSTEM = `You are "Ask Ise", a friendly git mentor helping a beginner with her own repo.
+const EXPLAIN_SYSTEM = `You are "Ask Iche", a friendly git mentor helping a beginner with her own repo.
 You receive FACTS about her repo and STEPS that are already correct.
 
 Rules:
@@ -102,7 +102,7 @@ Rules:
 - If FACTS say she is BEHIND, say clearly in the summary that she is behind and by how many commits.
 - "git pull" downloads new commits AND merges them. Never call it "fetch".
 - "git pull" may STOP with a conflict if both sides changed the same lines. It never fixes conflicts itself.
-- Never mention <<<<<<<, =======, or >>>>>>> markers. Ask Ise shows conflicts as simple side-by-side choices.
+- Never mention <<<<<<<, =======, or >>>>>>> markers. Ask Iche shows conflicts as simple side-by-side choices.
 - Conflicts are normal and nothing is lost. Never tell her to "check for conflicts before pulling".
 - "git add" stages files for the next commit. "git commit" saves them as a snapshot. "git push" uploads commits.
 - Only mention files, branches, and numbers that appear in FACTS. Never invent any.
@@ -115,7 +115,7 @@ SUMMARY: <1-2 sentences on what is going on and why>
 (one numbered line per step)
 TIP: <one short learning tip>`;
 
-const STATUS_SYSTEM = `You are "Ask Ise", a friendly git mentor. Speak to her as "you".
+const STATUS_SYSTEM = `You are "Ask Iche", a friendly git mentor. Speak to her as "you".
 Using ONLY the FACTS, explain where her repo is in 1-2 short sentences, then give one tip.
 Never suggest commands. Never invent files, branches, or numbers.
 Reply in EXACTLY this format:
@@ -211,7 +211,7 @@ export async function detectIntent(text) {
 // ---------------------------------------------------------------------------
 // Conflict helper: Gemma describes, in plain English, what each side changed.
 // It only DESCRIBES. It never picks for her and never writes the merged code.
-const CONFLICT_SYSTEM = `You are "Ask Ise", a calm, friendly git mentor. Speak to her as "you".
+const CONFLICT_SYSTEM = `You are "Ask Iche", a calm, friendly git mentor. Speak to her as "you".
 Two people changed the same lines of a file. You get ORIGINAL, YOURS and THEIRS.
 Describe in plain English what each side changed compared to ORIGINAL. Start the YOU line with "You" (never "I") and the THEM line with "They". Be specific (name the method, value or text).
 Do not pick a winner. Do not write code. Do not mention git markers. Keep each line short.

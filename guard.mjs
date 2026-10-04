@@ -58,7 +58,7 @@ export function check(args, { allowDangerous = false } = {}) {
 
   const rule = ALLOW[args[0]];
   const risk = typeof rule === "function" ? rule(args) : rule;
-  if (!risk) return { allowed: false, risk: "blocked", reason: `"git ${args[0]}" isn't on Ask Ise's allowed list.` };
+  if (!risk) return { allowed: false, risk: "blocked", reason: `"git ${args[0]}" isn't on Ask Iche's allowed list.` };
   return { allowed: true, risk };
 }
 

@@ -22,7 +22,7 @@ export function readConflict(repoRoot, path) {
   if (!mine || !theirs) return { unsupported: mine ? "deleted-theirs" : "deleted-mine" };
   if ([base, mine, theirs].some(b => b && b.includes(0))) return { unsupported: "binary" };
 
-  const tmp = mkdtempSync(join(tmpdir(), "ask-ise-"));
+  const tmp = mkdtempSync(join(tmpdir(), "ask-iche-"));
   try {
     const f = n => join(tmp, n);
     writeFileSync(f("mine"), mine); writeFileSync(f("base"), base || ""); writeFileSync(f("theirs"), theirs);
@@ -78,7 +78,7 @@ export function build(pieces, choices) {
 /** Save the result, keeping a backup of whatever was in the file before. */
 export function save(repoRoot, path, content) {
   const full = join(repoRoot, path);
-  const backup = join(repoRoot, ".git", "ask-ise-backup", path);
+  const backup = join(repoRoot, ".git", "ask-iche-backup", path);
   if (existsSync(full)) { mkdirSync(dirname(backup), { recursive: true }); copyFileSync(full, backup); }
   writeFileSync(full, content);
   return backup;

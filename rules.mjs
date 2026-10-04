@@ -158,7 +158,7 @@ export function plan(st, intent = "status") {
   if (blocked) {
     const warnings = [...(blocked.warnings || [])];
     if (intent === "force-push")
-      warnings.unshift("Force push can delete your teammates' work, so Ask Ise won't do it. Let's fix this first, then push safely.");
+      warnings.unshift("Force push can delete your teammates' work, so Ask Iche won't do it. Let's fix this first, then push safely.");
     return { ...base, ...blocked, warnings };
   }
 
@@ -186,7 +186,7 @@ export function plan(st, intent = "status") {
       r = planPush(st);
       r.situation = "force-push-refused";
       r.warnings = [
-        "Force push can delete your teammates' work on the remote, so Ask Ise won't do it. Here's the safe way instead.",
+        "Force push can delete your teammates' work on the remote, so Ask Iche won't do it. Here's the safe way instead.",
         ...(r.warnings || []),
       ];
       break;
@@ -214,5 +214,5 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   p.steps.forEach((s, i) => console.log(`${i + 1}. [${s.risk}] ${s.display}${s.note ? "   (" + s.note + ")" : ""}`));
   if (!p.steps.length) console.log("(no steps needed)");
   p.alternatives.forEach(a => console.log(`   alt: [${a.risk}] ${a.display}`));
-  if (p.thenRetry) console.log("→ After these steps, Ask Ise checks again and continues.");
+  if (p.thenRetry) console.log("→ After these steps, Ask Iche checks again and continues.");
 }

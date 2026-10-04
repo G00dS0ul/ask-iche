@@ -38,10 +38,10 @@ export function explainError(out) {
   if (o.includes("authentication failed") || o.includes("permission denied") || o.includes("403"))
     return "GitHub didn't accept your login. You may need to sign in again or check that you have access to this repo.";
   if (o.includes("rejected") && (o.includes("fetch first") || o.includes("non-fast-forward")))
-    return "The remote has new commits you don't have yet. Ask Ise will pull them first.";
-  if (o.includes("please commit your changes or stash them")) return "Your unsaved changes are in the way. Ask Ise will save them first.";
+    return "The remote has new commits you don't have yet. Ask Iche will pull them first.";
+  if (o.includes("please commit your changes or stash them")) return "Your unsaved changes are in the way. Ask Iche will save them first.";
   if (o.includes("nothing to commit")) return "There was nothing new to commit.";
-  if (o.includes("divergent branches")) return "Your branch and the remote both changed. Ask Ise will merge them.";
+  if (o.includes("divergent branches")) return "Your branch and the remote both changed. Ask Iche will merge them.";
   return null;
 }
 
@@ -98,7 +98,7 @@ export async function run({ cwd, intent, ui, explain, fetch = true, onEvent = ()
           const manual = [];
           for (const f of files) {
             const r = await guideFile(state.repoRoot, f, labels, ui, onEvent);
-            if (r === "stop") { ui.say("No problem. Nothing else was changed. Run Ask Ise again when you're ready.", "info"); return { ok: false, stopped: true }; }
+            if (r === "stop") { ui.say("No problem. Nothing else was changed. Run Ask Iche again when you're ready.", "info"); return { ok: false, stopped: true }; }
             if (r === "manual") manual.push(f);
           }
           if (!manual.length) continue;
@@ -106,7 +106,7 @@ export async function run({ cwd, intent, ui, explain, fetch = true, onEvent = ()
         }
         for (;;) {
           const go = await ui.confirm(`Step ${i + 1}: ${s.display}\n   Done fixing? `, false);
-          if (!go) { ui.say("No problem. Nothing else was changed. Run Ask Ise again when you're ready.", "info"); return { ok: false, stopped: true }; }
+          if (!go) { ui.say("No problem. Nothing else was changed. Run Ask Iche again when you're ready.", "info"); return { ok: false, stopped: true }; }
           const left = hasMarkers(state.repoRoot, files);
           if (!left.length) break;
           ui.say(`Still see conflict markers (<<<<<<< / >>>>>>>) in: ${left.join(", ")}`, "warn");
@@ -142,7 +142,7 @@ export async function run({ cwd, intent, ui, explain, fetch = true, onEvent = ()
       onEvent({ type: "exec", cmd: args.join(" "), code: r.code, ms: Date.now() - t0 });
       if (r.code !== 0) {
         const friendly = explainError(r.out);
-        ui.say(friendly || "That command didn't work. Ask Ise will check what happened.", "warn");
+        ui.say(friendly || "That command didn't work. Ask Iche will check what happened.", "warn");
         failed = true;
         if (/rejected|fetch first|non-fast-forward/i.test(r.out)) mustFetch = true;
         break; // re-collect and re-plan (e.g. pull hit a conflict -> conflict flow)
@@ -160,7 +160,7 @@ export async function run({ cwd, intent, ui, explain, fetch = true, onEvent = ()
     }
     // otherwise loop: re-collect, re-plan, continue
   }
-  ui.say("This is taking more rounds than expected. Time to ask the real Ise. 😅", "warn");
+  ui.say("This is taking more rounds than expected. Time to ask the real Iche. 😅", "warn");
   return { ok: false, tooManyRounds: true };
 }
 

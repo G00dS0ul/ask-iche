@@ -1,15 +1,15 @@
-# Ask Ise 🌿
+# Ask Iche 🌿
 
 **A local AI git buddy for beginners.** It reads your real repo, makes a safe plan, explains it in plain English with [Gemma](https://ai.google.dev/gemma), and runs each step only after you say yes.
 
-I built it for my colleague of 6 months. She's a Flutter dev learning a Node.js backend, and git (push, pull, fetch, conflicts) is where she always gets stuck. Until now the fix was "ask Ise". Now she can ask *Ask Ise*. And her work repo never leaves her laptop.
+I built it for my colleague of 6 months. She's a Flutter dev learning a Node.js backend, and git (push, pull, fetch, conflicts) is where she always gets stuck. Until now the fix was "ask Iche". Now she can ask *Ask Iche*. And her work repo never leaves her laptop.
 
 > Built for the DEV Hacktoberfest Weekend Challenge: *Build for a Friend*.
 
 ## What it does
 
 ```bash
-node ask-ise.mjs "my push got rejected" ~/projects/my-app
+node ask-iche.mjs "my push got rejected" ~/projects/my-app
 ```
 
 1. **Reads your repo** (read-only): branch, ahead/behind, unsaved files, conflicts.
@@ -20,7 +20,7 @@ node ask-ise.mjs "my push got rejected" ~/projects/my-app
 
 ### No scary conflict markers
 
-You never see `<<<<<<<`, `=======` or `>>>>>>>`. Ask Ise shows each conflict side by side:
+You never see `<<<<<<<`, `=======` or `>>>>>>>`. Ask Iche shows each conflict side by side:
 
 ```
 ── Conflict 1 of 1 in api.js (around line 7) ──
@@ -39,14 +39,14 @@ What do you want to keep?
   4) Keep both (theirs first)   5) I'll fix it myself in my editor
 ```
 
-It previews the result, backs up the old file to `.git/ask-ise-backup/`, and the **code** rebuilds the file, not the AI.
+It previews the result, backs up the old file to `.git/ask-iche-backup/`, and the **code** rebuilds the file, not the AI.
 
 ### Safety first
 
 - **The code plans, the model teaches.** I benchmarked 3 open models on the same git problem. None planned correctly twice in a row, so a deterministic rules engine decides the steps and Gemma only explains them.
 - **A guard checks every command** right before it runs. Force push, `reset --hard`, `clean -f`, `branch -D`, `rebase`, `--amend`, and unknown commands are blocked.
 - **Never opens vim.** Merges finish without dropping you into an editor.
-- **Works without AI.** If Ollama isn't running, Ask Ise still works with built-in explanations.
+- **Works without AI.** If Ollama isn't running, Ask Iche still works with built-in explanations.
 
 ## Setup
 
@@ -57,20 +57,20 @@ It previews the result, backs up the old file to `.git/ask-ise-backup/`, and the
    ```
 3. Clone this repo:
    ```bash
-   git clone https://github.com/G00dS0ul/ask-ise.git
-   cd ask-ise
+   git clone https://github.com/G00dS0ul/ask-iche.git
+   cd ask-iche
    ```
 No `npm install` needed. There are no dependencies.
 
 ## Usage
 
 ```bash
-node ask-ise.mjs status   [repo-path]       # where am I?
-node ask-ise.mjs push     [repo-path]       # save + upload my work safely
-node ask-ise.mjs pull     [repo-path]       # get the latest changes
-node ask-ise.mjs save     [repo-path]       # commit my work
-node ask-ise.mjs resolve  [repo-path]       # fix a conflict
-node ask-ise.mjs "my push got rejected" [repo-path]   # or just describe it
+node ask-iche.mjs status   [repo-path]       # where am I?
+node ask-iche.mjs push     [repo-path]       # save + upload my work safely
+node ask-iche.mjs pull     [repo-path]       # get the latest changes
+node ask-iche.mjs save     [repo-path]       # commit my work
+node ask-iche.mjs resolve  [repo-path]       # fix a conflict
+node ask-iche.mjs "my push got rejected" [repo-path]   # or just describe it
 ```
 
 Flags:
@@ -81,7 +81,7 @@ Flags:
 | `--no-fetch` | Don't check the remote first (faster, offline) |
 | `--stats` | Show Gemma timings |
 
-Use a different model: `ASK_ISE_MODEL=qwen2.5-coder:3b node ask-ise.mjs status`
+Use a different model: `ASK_ICHE_MODEL=qwen2.5-coder:3b node ask-iche.mjs status`
 
 > 💡 Try it on a throwaway GitHub repo first. A *copied* folder still points at the real remote.
 
@@ -109,7 +109,7 @@ Your message ─┐
 | `runner.mjs` | Runs steps with confirmation, re-plans after failures |
 | `conflicts.mjs` | Side-by-side conflict helper (no markers) |
 | `gemma.mjs` | Ollama client: streaming explanations + intent detection |
-| `ask-ise.mjs` | The CLI |
+| `ask-iche.mjs` | The CLI |
 
 ## Why local and open
 

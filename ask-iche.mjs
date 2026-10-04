@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// ask-ise.mjs — the CLI.
-//   node ask-ise.mjs push [repo]                    (a command)
-//   node ask-ise.mjs "my push got rejected" [repo]  (plain English)
+// ask-iche.mjs — the CLI.
+//   node ask-iche.mjs push [repo]                    (a command)
+//   node ask-iche.mjs "my push got rejected" [repo]  (plain English)
 // Flags: --no-ai (built-in explanations only), --no-fetch
 
 import { createInterface } from "node:readline/promises";
@@ -52,7 +52,7 @@ let intent = ALIASES[said.toLowerCase()] || (INTENTS.includes(said.toLowerCase()
 
 if (!intent) {
   if (["revert", "undo", "reset"].includes(said.toLowerCase())) {
-    console.log(c.yellow(`Undoing commits is risky, so Ask Ise doesn't do it yet. Ask the real Ise for this one. 😅`));
+    console.log(c.yellow(`Undoing commits is risky, so Ask Iche doesn't do it yet. Ask the real Iche for this one. 😅`));
     rl.close(); process.exit(1);
   }
   const d = ai.up && ai.hasModel ? await detectIntent(said) : await detectIntent(said).catch(() => ({ intent: null }));
@@ -97,7 +97,7 @@ const ui = {
     console.log(c.green(`  ① Yours (${labels.mine}):`)); block(k.mine, c.green);
     console.log(c.cyan(`  ② Theirs (${labels.theirs}):`)); block(k.theirs, c.cyan);
     if (ai.up && ai.hasModel) {
-      process.stdout.write(c.dim(`\n  Ask Ise is reading both versions… (${MODEL})`));
+      process.stdout.write(c.dim(`\n  Ask Iche is reading both versions… (${MODEL})`));
       let first = true;
       const r = await explainConflict(file, k, { onLine: (key, t) => {
         if (first) { process.stdout.write("\r\x1b[K"); first = false; }
@@ -124,7 +124,7 @@ const ui = {
 async function explain(p, st) {
   const facts = toFacts(st);
   if (!p.steps.length && !(ai.up && ai.hasModel)) { console.log(c.green("\nNothing to do. You're all set ✓\n")); return; }
-  if (ai.up && ai.hasModel) process.stdout.write(c.dim(`\n  Ask Ise is thinking… (${MODEL}, on your laptop)`));
+  if (ai.up && ai.hasModel) process.stdout.write(c.dim(`\n  Ask Iche is thinking… (${MODEL}, on your laptop)`));
   let cleared = false;
   const clear = () => { if (!cleared && ai.up && ai.hasModel) { process.stdout.write("\r\x1b[K"); cleared = true; } };
   const r = await explainPlan(p, facts, {
