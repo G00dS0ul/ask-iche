@@ -52,6 +52,19 @@ export function explainError(out) {
   return null;
 }
 
+// The files git lists under "...would be overwritten by checkout:"
+export function clashFiles(out) {
+  const files = [];
+  let on = false;
+  for (const line of String(out).split(/\r?\n/)) {
+    if (/would be overwritten/i.test(line)) { on = true; continue; }
+    if (!on) continue;
+    if (/^\s+\S/.test(line) && !/^\s*(please|aborting)/i.test(line)) files.push(line.trim());
+    else if (files.length) on = false;
+  }
+  return files;
+}
+
 const q = a => (/[\s"']/.test(a) ? `"${a.replace(/"/g, '\\"')}"` : a);
 const show = args => "git " + args.map(q).join(" ");
 
@@ -75,7 +88,7 @@ async function enrich(state, intent, values, cwd) {
 async function pickOne(needs, ui) {
   const opts = needs.options;
   for (let tries = 1; tries <= 3; tries++) {
-    const a = ((await ui.ask(needs.prompt, { kind: "pick", name: needs.name, options: opts, typed: !!needs.typed, byValue: !!needs.byValue, note: needs.note })) ?? "").trim();
+    const a = ((await ui.ask(needs.prompt, { kind: "pick", name: needs.name, options: opts, typed: !!needs.typed, byValue: !!needs.byValue, note: needs.note, blocker: needs.blocker || null })) ?? "").trim();
     if (!a) return null;
     const low = a.toLowerCase().replace(/^#/, "");
     const hit = needs.byValue
@@ -196,6 +209,13 @@ export async function run({ cwd, intent, ui, explain, fetch = true, onEvent = ()
         const friendly = explainError(r.out);
         ui.say(friendly || "That command didn't work. Iche will check what happened.", "warn");
         failed = true;
+        // Unsaved changes are in the way (switch / new branch): forget "take them with me" and ask again,
+        // as a blocker card, instead of offering the same plan in a loop.
+        if (/would be overwritten|please commit your changes or stash them/i.test(r.out)) {
+          if (values.clash && values.keepWork !== "carry") { ui.say("Git still won't do it because of your unsaved changes. Nothing was changed. Try Commit, or message Iche (the human one 😄).", "warn"); return { ok: false, blockedByChanges: true }; }
+          values.clash = { files: clashFiles(r.out), cmd: show(args) };
+          delete values.keepWork;
+        }
         if (/rejected|fetch first|non-fast-forward/i.test(r.out)) mustFetch = true;
         break; // re-collect and re-plan (e.g. pull hit a conflict -> conflict flow)
       }
@@ -227,7 +247,15 @@ async function guideFile(repoRoot, file, labels, ui, onEvent) {
   }
   if (!r.conflicts.length) return "done";
   const keys = Object.keys(CHOICES), choices = [];
+  // Identical on both sides (only line endings or spaces differ): nothing to choose.
+  if (r.conflicts.every(c => c.identical)) {
+    const backup = save(repoRoot, file, build(r.pieces, r.conflicts.map(() => "mine")));
+    ui.say(`✓ Both versions of ${file} are the same (only invisible line endings or spaces differed), so Iche kept it as it is. Nothing to choose. (Old copy backed up in ${relative(repoRoot, backup).replace(/\\/g, "/")})`, "ok");
+    onEvent({ type: "conflict-choice", file, choice: "identical" });
+    return "done";
+  }
   for (const [k, c] of r.conflicts.entries()) {
+    if (c.identical) { choices.push("mine"); continue; } // same on both sides, skip
     await ui.showConflict({ file, conflict: c, index: k, total: r.conflicts.length, labels });
     for (let tries = 1; ; tries++) {
       const a = ((await ui.ask(`Your choice (1-${keys.length + 1}):`, { kind: "choice", file, index: k })) ?? "").trim();

@@ -15,7 +15,7 @@ import { run } from "./runner.mjs";
 import { toFacts, nextHint } from "./collector.mjs";
 import { INTENTS, quickIntent, refuseText } from "./rules.mjs";
 import { CHOICES } from "./conflicts.mjs";
-import { MODEL, isAvailable, warmup, explainPlan, detectIntent, explainConflict } from "./gemma.mjs";
+import { MODEL, isAvailable, warmup, explainPlan, allFixed, detectIntent, explainConflict } from "./gemma.mjs";
 
 const PORT = Number(process.env.PORT || 4321);
 const TOKEN = randomBytes(16).toString("hex"); // stops other websites from talking to this server
@@ -52,13 +52,14 @@ const ui = {
     const v = await waitFor({ type: "confirm", prompt, strict, meta });
     return strict ? String(v ?? "").trim().toLowerCase() === "yes" : v === true;
   },
-  show: async (p, st, round) => emit({ type: "show", round, facts: toFacts(st), warnings: p.warnings || [] }),
+  show: async (p, st, round) => { if (round > 1) stopExplaining(); emit({ type: "show", round, facts: toFacts(st), warnings: p.warnings || [] }); },
   running: info => emit({ type: "running", ...info }),
   output: text => emit({ type: "output", text }),
   showConflict: async ({ file, conflict, index, total, labels }) => {
     emit({ type: "conflict", file, index, total, labels, line: conflict.line,
       base: conflict.base, mine: conflict.mine, theirs: conflict.theirs, choices: Object.values(CHOICES) });
     if (aiOn()) {
+      stopExplaining(); // the conflict matters more than the plan's words; one Gemma job at a time
       emit({ type: "thinking", text: `Iche is reading both versions… (${MODEL}, on your laptop)` });
       const r = await explainConflict(file, conflict, { onLine: (key, text) => emit({ type: "conflict-line", key, text }) });
       emit({ type: "thinking-done", stats: r.stats });
@@ -67,16 +68,25 @@ const ui = {
   showResolved: async ({ file, picked }) => emit({ type: "resolved", file, picked }),
 };
 
-async function explain(p, st) {
+// The plan (and its Run buttons) shows right away. Gemma's words stream in on the side, so a slow
+// laptop never blocks her. Each plan gets a number (seq); a newer plan stops the older explanation.
+let explainSeq = 0, explainCtl = null;
+function stopExplaining() { explainCtl?.abort(); explainCtl = null; }
+function explain(p, st) {
+  stopExplaining();
   if (p.blocked) return emit({ type: "blocked" }); // refusal already shown; no plan, no AI, nothing to click
-  emit({ type: "plan", situation: p.situation, hint: p.steps.length ? null : nextHint(st), steps: p.steps.map(s => ({ display: s.display, risk: s.risk, manual: !!s.manual })) });
-  if (aiOn()) emit({ type: "thinking", text: `Iche is thinking… (${MODEL}, on your laptop)` });
-  const r = await explainPlan(p, toFacts(st), {
-    onSummary: text => emit({ type: "summary", text }),
-    onReason: (index, text) => emit({ type: "reason", index, text }),
-    onTip: text => emit({ type: "tip", text }),
-  }, { offline: !aiOn() });
-  emit({ type: "thinking-done", stats: r.stats, fellBack: r.fellBack });
+  const seq = ++explainSeq, ctl = new AbortController(); explainCtl = ctl;
+  emit({ type: "plan", seq, situation: p.situation, hint: p.steps.length ? null : nextHint(st), steps: p.steps.map(s => ({ display: s.display, risk: s.risk, manual: !!s.manual })) });
+  if (aiOn() && !allFixed(p)) emit({ type: "thinking", seq, text: `Iche is thinking… (${MODEL}, on your laptop)` });
+  explainPlan(p, toFacts(st), {
+    onSummary: text => emit({ type: "summary", seq, text }),
+    onReason: (index, text) => emit({ type: "reason", seq, index, text }),
+    onTip: text => emit({ type: "tip", seq, text }),
+    onPartial: (key, index, text) => emit({ type: "partial", seq, key, index, text }),
+  }, { offline: !aiOn(), signal: ctl.signal })
+    .then(r => emit({ type: "thinking-done", seq, stats: r.stats, fellBack: r.fellBack, aborted: !!r.aborted }))
+    .catch(() => emit({ type: "thinking-done", seq }))
+    .finally(() => { if (explainCtl === ctl) explainCtl = null; });
 }
 
 // ---------- intent (same rules as the CLI) ----------
@@ -174,12 +184,12 @@ const server = http.createServer(async (req, res) => {
     const preset = {};
     for (const k of ["stash", "action", "to", "branch", "target", "from", "ref", "style", "target"])
       if (typeof b.values?.[k] === "string") preset[k] = b.values[k].slice(0, 100);
-    busy = true; history = [];
+    stopExplaining(); busy = true; history = [];
     emit({ type: "start", intent, path: cwd, words: WORDS[intent] });
     json(res, 200, { ok: true });
     try {
       const result = await run({ cwd, intent, ui, explain, fetch: b.fetch !== false, values: preset });
-      emit({ type: "end", ok: !!result.ok, stopped: !!result.stopped });
+      emit({ type: "end", ok: !!result.ok, stopped: !!result.stopped, situation: result.situation, branch: result.state?.branch || null });
     } catch (e) {
       emit({ type: "say", kind: "error", text: "Something went wrong inside Ask Iche: " + e.message });
       emit({ type: "end", ok: false });

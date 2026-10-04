@@ -16,6 +16,8 @@ const NEVER = [
     "Plain force push can delete other people's work. Iche only ever uses --force-with-lease, on your own branch."],
   [a => a[0] === "push" && has(a, "--force-with-lease") && (pushTarget(a).length !== 1 || PROTECTED.test(pushTarget(a)[0])),
     "Rewriting a shared branch like main is never allowed."],
+  [a => a[0] === "push" && (has(a, "--delete", "-d") || a.some(x => x.startsWith(":"))) && (pushTarget(a).length !== 1 || PROTECTED.test(pushTarget(a)[0].replace(/^:/, ""))),
+    "Deleting a shared branch like main on GitHub is never allowed."],
   [a => a[0] === "rebase" && has(a, "-i", "--interactive", "--exec", "-x", "--root"),
     "Interactive rebase needs an editor, so Iche doesn't do it."],
 ];
@@ -27,7 +29,7 @@ const DANGER = [
   [a => a[0] === "push" && has(a, "--force-with-lease"),
     "dangerous", "This replaces your branch on GitHub with your cleaned-up version. --force-with-lease refuses if anyone else pushed to it."],
   [a => a[0] === "push" && (has(a, "--delete", "-d") || a.some(x => x.startsWith(":"))),
-    "dangerous", "This deletes a branch on the remote."],
+    "dangerous", "This deletes the branch on GitHub for everyone. A copy stays on your laptop."],
   [a => a[0] === "reset" && has(a, "--hard"),
     "dangerous", "reset --hard throws away all uncommitted changes permanently."],
   [a => a[0] === "clean" && a.some(x => /^-[a-z]*f/.test(x)),

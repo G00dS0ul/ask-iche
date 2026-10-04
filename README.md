@@ -14,7 +14,7 @@ node ask-iche.mjs "my push got rejected" ~/projects/my-app
 
 1. **Reads your repo** (read-only): branch, ahead/behind, unsaved files, conflicts.
 2. **Makes a plan** with plain code, not AI: e.g. add → commit → pull → push.
-3. **Gemma explains** what's going on and why each step is needed, streamed live, on your laptop.
+3. **Gemma explains** what's going on and why each step is needed, streamed live word by word, on your laptop. The plan and its Run buttons show right away, so a slow CPU never makes you wait.
 4. **Runs one step at a time**, only after you confirm.
 5. **Re-checks after each step.** If a pull hits a conflict, it switches to the conflict helper.
 
@@ -52,10 +52,11 @@ It previews the result, backs up the old file to `.git/ask-iche-backup/`, and th
 | ↩️ **Undo commits** · `undo` | Soft (keep changes staged), mixed (keep as unsaved edits) or hard (throw away). Only for commits not pushed yet. |
 | 🧹 **Clean up for review** · `cleanup` | Rebases your branch on the latest `main`. Optionally squashes all your commits into one clean commit, then pushes with `--force-with-lease`. |
 | 🍒 **Copy a commit** · `cherry-pick` | Pick a branch, pick a commit, and copy it onto your branch. |
-| 🌿 **Branches** · `branch` | Switch, create (from here or the latest `main`), rename, or delete a branch. Unsaved work? It asks: stash, commit, or take it with you. Delete uses the safe `-d`, and old `backup/` copies can be cleaned up here too. |
+| 🌿 **Branches** · `branch` | Switch, create (from here or the latest `main`), rename, or delete a branch. Unsaved work? It asks: stash, commit, or take it with you. If git refuses because they clash, a 🧱 card shows which files are in the way and offers stash or commit. Delete uses the safe `-d`, and old `backup/` copies can be cleaned up here too. Branches marked ☁️ are GitHub's copies: Ask Iche makes a safety copy on your laptop first, then deletes it on GitHub (type `yes`). `main`/`master`/`develop` are never deleted. |
 | 📜 **History** · `log` | Commit history of your branch, GitHub's copy, or `main`: one line each, or detailed (author, time, files). |
+| 🎓 **Learn mode** (app only) | A tiny 5-question git quiz tied to the buttons, with instant feedback and your best score saved. It never touches your repo. |
 
-You can also type real git commands in the box: `git checkout main`, `git checkout -b feature/x`, `git branch -m new-name`, `git log --oneline origin/main`. Ask Iche turns them into the same guided steps.
+You can also type real git commands in the box: `git checkout main`, `git checkout -b feature/x`, `git branch -m new-name`, `git log --oneline origin/main`, `git push origin --delete old-branch`. Ask Iche turns them into the same guided steps.
 
 If a stash pop, rebase or cherry-pick hits a conflict, the same side-by-side conflict helper takes over.
 
@@ -82,6 +83,8 @@ If a stash pop, rebase or cherry-pick hits a conflict, the same side-by-side con
    ```
 No `npm install` needed. There are no dependencies.
 
+> **On Windows?** Use one git per folder: either Windows git or WSL git, not both. If you do mix them, run `git config core.autocrlf true` in that folder so line endings (CRLF vs LF) don't show up as fake changes or fake conflicts.
+
 ## Usage: the friendly app (recommended)
 
 ```bash
@@ -94,6 +97,7 @@ Your browser opens **Ask Iche** at `http://127.0.0.1:4321`:
 2. **Click what you want:** Where am I? · Save my work · Upload my work · Get latest · Fix a conflict. Or type what happened, e.g. *"my push got rejected"*.
 3. **Read the plan.** Gemma explains each step, and you click **▶ Run this step** one at a time.
 4. **Conflicts** show up as two cards, *Yours* and *Theirs*, with buttons: Keep mine / Keep theirs / Keep both.
+5. **Practice** with 🎓 Learn mode, a tiny quiz. Friendly bouncy animations and a little confetti when things work (turned off if your system asks for reduced motion).
 
 It runs 100% on your laptop. The server only listens on `127.0.0.1`, and every request needs a secret token that's created fresh each time, so other websites can't talk to it.
 
@@ -173,7 +177,8 @@ Your message ─┐
 - [x] Copy a commit (cherry-pick)
 - [x] Branches (switch / create / rename / delete) and History (git log)
 - [ ] Revert for commits that are already pushed
-- [ ] Learn mode: a tiny quiz after each action
+- [x] Learn mode: a tiny git quiz
+- [x] Delete branches on GitHub (with a laptop safety copy first)
 
 ## License
 

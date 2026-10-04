@@ -21,6 +21,7 @@
   .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
   input[type=text] { flex:1; min-width:220px; font:inherit; padding:10px 14px; border:1px solid var(--line); border-radius:10px; background:#fbfcfb; }
   input[type=text]:focus { outline:2px solid #bfe3cd; border-color:var(--green); }
+  summary { outline:none; border-radius:6px; } summary:focus-visible { outline:2px solid #bfe3cd; outline-offset:2px; }
   button { font:inherit; border:1px solid var(--line); background:#fff; padding:9px 16px; border-radius:10px; cursor:pointer; }
   button:hover:not(:disabled) { border-color:#b9c7be; background:#fafcfb; }
   button:disabled { opacity:.5; cursor:not-allowed; }
@@ -87,11 +88,55 @@
   .dir .git { font-size:12px; color:var(--green); }
   .muted { color:var(--mute); font-size:14px; }
   @media (max-width:640px) { .versions { grid-template-columns:1fr; } }
+
+  /* ---------- friendly, bouncy motion ---------- */
+  :root { --bounce:cubic-bezier(.34,1.56,.64,1); }
+  @keyframes pop { 0% { opacity:0; transform:translateY(12px) scale(.96); } 100% { opacity:1; transform:none; } }
+  .card, .msg, .banner, .bubble, .tip, .step, .ask, .thinking { animation:pop .45s var(--bounce) both; }
+  button { transition:transform .15s var(--bounce), box-shadow .15s, background .15s; }
+  button:hover:not(:disabled) { transform:translateY(-2px); box-shadow:0 4px 10px rgba(30,60,40,.08); }
+  button:active:not(:disabled) { transform:scale(.95); box-shadow:none; }
+  #logo { display:inline-block; transform-origin:50% 90%; animation:sway 4s ease-in-out infinite; }
+  body.busy #logo { animation-duration:1.1s; }
+  @keyframes sway { 0%,100% { transform:rotate(-6deg); } 50% { transform:rotate(6deg); } }
+  .banner { position:relative; overflow:visible; animation:bounceIn .7s var(--bounce) both; }
+  @keyframes bounceIn { 0% { opacity:0; transform:scale(.6); } 60% { opacity:1; transform:scale(1.06); } 100% { transform:none; } }
+  .confetti { position:absolute; left:50%; top:50%; font-size:20px; pointer-events:none; animation:fly 1.1s cubic-bezier(.2,.8,.3,1) forwards; }
+  @keyframes fly { 0% { transform:translate(-50%,-50%) scale(.4); opacity:1; } 100% { transform:translate(calc(-50% + var(--x)), calc(-50% + var(--y))) rotate(var(--r)) scale(1); opacity:0; } }
+  .step.done::before { animation:checkPop .5s var(--bounce); }
+  @keyframes checkPop { 0% { transform:scale(.3); } 70% { transform:scale(1.25); } 100% { transform:scale(1); } }
+  .banner.stop, .warn.block, .shake { animation:shake .5s ease both; }
+  @keyframes shake { 0%,100% { transform:none; } 20% { transform:translateX(-7px); } 40% { transform:translateX(6px); } 60% { transform:translateX(-4px); } 80% { transform:translateX(2px); } }
+  .dots { display:inline-flex; gap:4px; }
+  .dots i { width:7px; height:7px; border-radius:50%; background:var(--green); animation:hop 1s ease-in-out infinite; }
+  .dots i:nth-child(2) { animation-delay:.15s; } .dots i:nth-child(3) { animation-delay:.3s; }
+  @keyframes hop { 0%,60%,100% { transform:translateY(0); opacity:.5; } 30% { transform:translateY(-6px); opacity:1; } }
+  .thinking .secs { font-variant-numeric:tabular-nums; opacity:.8; }
+  .thinking .slow { width:100%; font-size:13px; margin-left:22px; }
+  .thinking { flex-wrap:wrap; }
+  .typing::after { content:"▍"; color:var(--green); margin-left:1px; animation:blink 1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity:0; } }
+  .card.blocker { background:var(--amber-bg); border-color:#f1d9a6; }
+  .card.blocker h2 { color:var(--amber); text-transform:none; letter-spacing:0; font-size:17px; }
+  .card.blocker .files { margin:8px 0; padding-left:22px; font-family:ui-monospace,Consolas,monospace; font-size:14px; }
+  /* Learn quiz */
+  .quiz .q { font-size:18px; font-weight:600; margin:6px 0 12px; }
+  .quiz .opts { display:grid; gap:8px; }
+  .quiz .opts button { text-align:left; padding:12px 14px; }
+  .quiz .opts button:disabled { opacity:1; }
+  .quiz .opts button:disabled:not(.right):not(.wrong) { opacity:.55; }
+  .quiz .opts button.right { background:var(--green-bg); border-color:var(--green); color:var(--green); animation:checkPop .45s var(--bounce); }
+  .quiz .opts button.wrong { background:var(--red-bg); border-color:var(--red); color:var(--red); animation:shake .45s ease; }
+  .quiz .bar { height:8px; background:#eef2ef; border-radius:99px; overflow:hidden; margin-bottom:10px; }
+  .quiz .bar div { height:100%; background:var(--green); border-radius:99px; transition:width .5s var(--bounce); }
+  .quiz .stars { position:relative; font-size:40px; letter-spacing:6px; text-align:center; margin:8px 0; }
+  .quiz .stars span { display:inline-block; animation:bounceIn .6s var(--bounce) both; }
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation:none !important; transition:none !important; } }
 </style>
 </head>
 <body>
 <header>
-  <div style="font-size:28px">🌿</div>
+  <div style="font-size:28px"><span id="logo">🌿</span></div>
   <div><h1>Ask Iche</h1><div class="sub">Your friendly git buddy. Nothing runs until you say so.</div></div>
   <button class="pill" id="aiPill" title="Turn the AI explanations on or off">…</button>
 </header>
@@ -125,6 +170,7 @@
       <button class="action" data-intent="cherry-pick"><b>🍒 Copy a commit</b><span>Cherry-pick from a branch</span></button>
       <button class="action" data-intent="branch"><b>🌿 Branches</b><span>Switch, create, rename, delete</span></button>
       <button class="action" data-intent="log"><b>📜 History</b><span>See commits (git log)</span></button>
+      <button class="action" id="learnBtn"><b>🎓 Learn mode</b><span>A tiny 5-question git quiz</span></button>
     </div>
     <div class="row">
       <input type="text" id="said" placeholder='Or just tell me what happened, e.g. "my push got rejected"'>
@@ -169,7 +215,7 @@ const RISK = { safe: "safe", normal: "needs your OK", careful: "careful", danger
 const DONE = { stash: "📦 Stashed! Your work is safe in your stash list.", unstash: "📤 Your stashed work is back in your files.",
   save: "💾 Saved! Your work is in a commit.", reset: "↩️ Done. Those commits are undone.", rebase: "🧹 Your branch is clean and ready for review.",
   "cherry-pick": "🍒 Done. The commit is copied onto your branch.", branch: "🌿 Done! Check again to see where you are.", log: "📜 That's the history. Nothing was changed." };
-let curIntent = null;
+let curIntent = null, lastDone = null;
 let busy = false, plan = null, conflictCard = null, thinkingEl = null, runningStep = null;
 const showStats = new URLSearchParams(location.search).has("stats");
 
@@ -214,7 +260,7 @@ async function drawAI(info) {
 $("#aiPill").onclick = async () => drawAI({ ...(await api("ai", { on: !$("#aiPill").dataset.on })) });
 
 // ---------- start a run ----------
-function setBusy(b) { busy = b; document.querySelectorAll(".action,#askBtn").forEach(x => x.disabled = b); }
+function setBusy(b) { busy = b; document.body.classList.toggle("busy", b); document.querySelectorAll(".action,#askBtn").forEach(x => x.disabled = b); }
 async function start(intent, values) {
   const path = $("#repo").value.trim();
   if (!path) { $("#browse").click(); return; }
@@ -222,7 +268,7 @@ async function start(intent, values) {
   const r = await api("run", { path, intent, values });
   if (r.error) tl.prepend(el("div", { class: "msg error" }, r.error));
 }
-document.querySelectorAll(".action").forEach(b => b.onclick = () => start(b.dataset.intent));
+document.querySelectorAll(".action[data-intent]").forEach(b => b.onclick = () => start(b.dataset.intent));
 async function askText() {
   const text = $("#said").value.trim(); if (!text) return;
   const box = $("#intentAsk"); box.replaceChildren(el("div", { class: "thinking" }, el("span", { class: "spin" }), "Understanding what you mean…"));
@@ -242,13 +288,38 @@ const answer = (id, value) => api("answer", { id, value });
 const stopBtn = id => el("button", { class: "ghost", onclick: () => answer(id, null) }, "Stop");
 
 // ---------- render events ----------
-function stopThinking() { thinkingEl?.remove(); thinkingEl = null; }
+// "Iche is thinking…" with hopping dots and a seconds counter. On a CPU laptop the first answer can be slow.
+function makeThinking(text, slowNote) {
+  const secs = el("span", { class: "secs" }), t0 = Date.now();
+  const box = el("div", { class: "thinking" }, el("span", { class: "dots" }, el("i"), el("i"), el("i")), text, secs);
+  box._timer = setInterval(() => {
+    const s = Math.round((Date.now() - t0) / 1000);
+    if (s >= 3) secs.textContent = `· ${s}s`;
+    if (s === 15 && slowNote) box.append(el("div", { class: "slow" }, slowNote));
+  }, 1000);
+  return box;
+}
+function dropThinking(box) { if (box) { clearInterval(box._timer); box.remove(); } }
+function stopThinking() { dropThinking(thinkingEl); thinkingEl = null; }
+const typingOff = () => plan?.card?.querySelectorAll(".typing").forEach(x => x.classList.remove("typing"));
+const stale = ev => ev.seq !== undefined && plan?.seq !== ev.seq; // words for an older plan: ignore
+function celebrate(banner) {
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const bits = ["🎉", "🌿", "✨", "💚", "🎊", "⭐"];
+  for (let i = 0; i < 14; i++) {
+    const a = (Math.PI * 2 * i) / 14, d = 90 + Math.random() * 70;
+    const c = el("span", { class: "confetti", style: `--x:${Math.cos(a) * d * 1.6}px;--y:${Math.sin(a) * d}px;--r:${Math.random() * 360 - 180}deg` }, bits[i % bits.length]);
+    banner.append(c); setTimeout(() => c.remove(), 1200);
+  }
+}
+function doneBanner(text) { const b = el("div", { class: "banner" }, text); tl.append(b); celebrate(b); return b; }
 function card(title, ...kids) { const c = el("div", { class: "card" }, title ? el("h2", {}, title) : null, ...kids); tl.append(c); c.scrollIntoView({ behavior: "smooth", block: "nearest" }); return c; }
 const questions = new Map(); // id -> element to remove when answered
 
 function render(ev) {
   switch (ev.type) {
     case "start":
+      dropThinking(plan?.thinkEl); stopThinking();
       tl.replaceChildren(); plan = null; conflictCard = null; setBusy(true); curIntent = ev.intent;
       tl.append(el("div", { class: "muted", style: "margin:4px 4px 12px" }, `You asked to ${ev.words} in ${ev.path}`)); break;
     case "show":
@@ -256,8 +327,9 @@ function render(ev) {
         el("ul", { class: "facts" }, ev.facts.map(f => el("li", {}, f))), ev.warnings.map(w => w.startsWith("🚫") ? el("div", { class: "warn block" }, w) : el("div", { class: "warn" }, "⚠️ " + w))); break;
     case "blocked": plan = { steps: [], blocked: true }; break;
     case "plan": {
-      const steps = ev.steps.map(s => {
-        const li = el("li", { class: "step" },
+      dropThinking(plan?.thinkEl);
+      const steps = ev.steps.map((s, i) => {
+        const li = el("li", { class: "step", style: `animation-delay:${0.15 + i * 0.08}s` },
           s.manual ? el("b", {}, s.display) : el("span", { class: "cmd" }, s.display),
           el("span", { class: "badge b-" + s.risk }, RISK[s.risk] || s.risk),
           el("div", { class: "why" }, el("span", { class: "skeleton" })), el("div", { class: "slot" }));
@@ -265,19 +337,42 @@ function render(ev) {
       });
       const summary = el("div", { class: "bubble", style: "display:none" });
       const c = card(ev.steps.length ? "🗺️ The plan" : ev.hint ? "📋 Summary" : "✨ All good", summary, ev.steps.length ? el("ol", { class: "steps" }, steps) : null);
-      plan = { card: c, steps, summary, hint: ev.hint }; break;
+      plan = { seq: ev.seq, card: c, steps, summary, hint: ev.hint, thinkEl: null, tipEl: null }; break;
     }
-    case "thinking": stopThinking(); thinkingEl = el("div", { class: "thinking" }, el("span", { class: "spin" }), ev.text);
+    case "thinking":
+      if (ev.seq !== undefined) { // the plan's words: the Run buttons don't wait for these
+        if (stale(ev) || !plan) break;
+        dropThinking(plan.thinkEl);
+        plan.thinkEl = makeThinking(ev.text, "The first answer can take about 30 seconds on this laptop. The plan above is already safe to run.");
+        plan.summary.before(plan.thinkEl); break;
+      }
+      stopThinking(); thinkingEl = makeThinking(ev.text, "Still reading. Gemma runs on your laptop, so this can take a little while.");
       (conflictCard?.explain && !conflictCard.done ? conflictCard.explain : plan?.summary)?.before(thinkingEl); break;
-    case "thinking-done": stopThinking();
+    case "thinking-done":
+      if (ev.seq !== undefined) {
+        if (stale(ev)) break;
+        dropThinking(plan?.thinkEl); if (plan) plan.thinkEl = null; typingOff();
+        if (showStats && ev.stats?.totalMs) plan?.card.append(el("div", { class: "muted" }, `[first words ${(ev.stats.firstTokenMs / 1000).toFixed(1)}s, total ${(ev.stats.totalMs / 1000).toFixed(1)}s${ev.fellBack ? ", filled " + ev.fellBack + " from built-in" : ""}]`));
+        break;
+      }
+      stopThinking();
       const wasConflict = conflictCard && !conflictCard.done;
       if (wasConflict) conflictCard.done = true;
       if (showStats && ev.stats && wasConflict) { conflictCard.explain.append(el("div", { class: "muted" }, `[first words ${(ev.stats.firstTokenMs / 1000).toFixed(1)}s, total ${(ev.stats.totalMs / 1000).toFixed(1)}s]`)); break; }
       if (showStats && ev.stats) (plan?.card || tl).append(el("div", { class: "muted" }, `[first words ${(ev.stats.firstTokenMs / 1000).toFixed(1)}s, total ${(ev.stats.totalMs / 1000).toFixed(1)}s${ev.fellBack ? ", filled " + ev.fellBack + " from built-in" : ""}]`));
       break;
-    case "summary": if (plan) { plan.summary.style.display = ""; plan.summary.textContent = ev.text; } break;
-    case "reason": if (plan?.steps[ev.index]) plan.steps[ev.index].querySelector(".why").textContent = ev.text; break;
-    case "tip": plan?.card.append(el("div", { class: "tip" }, ev.text)); break;
+    case "partial": { // Gemma's words as they arrive, with a typing caret
+      if (stale(ev) || !plan) break;
+      let t = null;
+      if (ev.key === "summary") { t = plan.summary; t.style.display = ""; }
+      else if (ev.key === "reason") t = plan.steps[ev.index]?.querySelector(".why");
+      else if (ev.key === "tip") t = plan.tipEl ||= plan.card.appendChild(el("div", { class: "tip" }));
+      if (t) { t.textContent = ev.text; t.classList.add("typing"); }
+      break;
+    }
+    case "summary": if (plan && !stale(ev)) { plan.summary.style.display = ""; plan.summary.textContent = ev.text; plan.summary.classList.remove("typing"); } break;
+    case "reason": if (!stale(ev) && plan?.steps[ev.index]) { const w = plan.steps[ev.index].querySelector(".why"); w.textContent = ev.text; w.classList.remove("typing"); } break;
+    case "tip": if (plan && !stale(ev)) { const t = plan.tipEl ||= plan.card.appendChild(el("div", { class: "tip" })); t.textContent = ev.text; t.classList.remove("typing"); } break;
     case "confirm": {
       const m = ev.meta || {}; let box;
       if (m.kind === "step" || m.kind === "manual") {
@@ -307,10 +402,15 @@ function render(ev) {
         const typed = m.typed ? el("input", { type: "text", placeholder: m.byValue ? "or type the stash number or name" : "or type it" }) : null;
         const sendTyped = () => typed.value.trim() && answer(ev.id, typed.value.trim());
         typed?.addEventListener("keydown", e => { if (e.key === "Enter") sendTyped(); });
-        box = card("🤔 Your choice", el("b", {}, ev.prompt), m.note ? el("div", { class: "muted" }, m.note) : null,
+        const bl = m.blocker; // git refused: show why, which files, then the ways out
+        box = card(bl ? bl.title : "🤔 Your choice",
+          bl ? el("div", {}, bl.text) : null,
+          bl?.files?.length ? el("ul", { class: "files" }, bl.files.map(f => el("li", {}, f))) : null,
+          el("b", {}, ev.prompt), m.note ? el("div", { class: "muted" }, m.note) : null,
           el("div", { class: "picks", style: "margin-top:10px" }, m.options.map((o, n) =>
             el("button", { onclick: () => answer(ev.id, m.byValue ? o.value : String(n + 1)) }, el("b", {}, o.label), o.hint ? el("span", {}, o.hint) : null))),
           el("div", { class: "ask" }, typed, typed ? el("button", { onclick: sendTyped }, "OK") : null, stopBtn(ev.id)));
+        if (bl) box.classList.add("blocker", "shake");
         box._pick = v => (m.options.find((o, n) => (m.byValue ? o.value : String(n + 1)) === String(v)) || m.options.find(o => o.value === v || (o.aliases || []).includes(v)) || { label: v }).label;
         questions.set(ev.id, box); break;
       }
@@ -338,7 +438,10 @@ function render(ev) {
       if (ev.text === "✓ done" && runningStep) { const pre = runningStep.querySelector("details pre"); if (pre && !pre.textContent.trim()) pre.textContent = "(git printed nothing. That's normal for this step. It worked.)"; runningStep.classList.remove("active"); runningStep.classList.add("done"); runningStep.querySelector(".run")?.remove(); runningStep = null; break; }
       if (runningStep && ev.kind === "warn") { runningStep.classList.remove("active"); runningStep.classList.add("failed"); runningStep.querySelector(".run")?.remove(); runningStep = null; }
       if (/^Step \d+: /.test(ev.text)) break; // the plan card already shows this
-      if (ev.text.startsWith("All done")) { tl.append(el("div", { class: "banner" }, DONE[curIntent] || "🎉 All done! Your work is safe and in sync.")); break; }
+      if (ev.text.startsWith("All done")) { lastDone = doneBanner(DONE[curIntent] || "🎉 All done! Your work is safe and in sync."); break; }
+      if (ev.text.startsWith("✓ Both versions") && plan) { // auto-saved: show it on the "Choose which version" step
+        const li = plan.steps.find(li => !li.classList.contains("done"));
+        if (li) { (li.querySelector(".slot") || li).append(el("div", { class: "msg ok" }, ev.text)); li.classList.add("done"); break; } }
       if (ev.text.startsWith("✓ Saved") && conflictCard) {
         conflictCard.card.append(el("div", { class: "msg ok" }, ev.text));
         plan?.steps.find(li => li.querySelector("b") && !li.classList.contains("done"))?.classList.add("done"); break; }
@@ -348,7 +451,7 @@ function render(ev) {
       const buttons = [...ev.choices, "I'll fix it myself in my editor"].map(t => el("button", { disabled: true }, t));
       const explain = el("div", { class: "explain" });
       const c = card(`🤝 Conflict ${ev.index + 1} of ${ev.total} · ${ev.file} (around line ${ev.line})`,
-        el("p", { class: "muted", style: "margin-top:0" }, "You and a teammate changed the same lines. Nothing is lost. Just pick what to keep."),
+        el("p", { class: "muted", style: "margin-top:0" }, /stash/.test(ev.labels.theirs) ? "Your stash and your latest code changed the same lines. Nothing is lost. Just pick what to keep." : "You and a teammate changed the same lines. Nothing is lost. Just pick what to keep."),
         el("div", { class: "versions" },
           ev.base.trim() ? el("div", { class: "ver base" }, el("h3", {}, "Before anyone changed it"), el("pre", {}, ev.base)) : null,
           el("div", { class: "ver mine" }, el("h3", {}, `① Yours (${ev.labels.mine})`), el("pre", {}, ev.mine || "(nothing, this part was removed)")),
@@ -363,12 +466,69 @@ function render(ev) {
         ...ev.picked.map(t => el("pre", { style: "background:#f4f6f5;padding:10px;border-radius:8px;margin-top:6px" }, t || "(empty)")))); break;
     case "end":
       setBusy(false); stopThinking();
+      if (ev.ok && curIntent === "branch" && ev.branch && /^(switch|new-branch)/.test(ev.situation || "") && lastDone) lastDone.firstChild.textContent = `🌿 You're on ${ev.branch} now.`;
+      if (ev.ok && lastDone && ev.situation === "delete-all-backups") lastDone.firstChild.textContent = "🧹 Old backups deleted. Your branches are tidy.";
+      if (ev.ok && lastDone && /^delete-(remote-)?branch$/.test(ev.situation || "")) lastDone.firstChild.textContent = "🗑️ Deleted. Your branch list is tidier.";
+      lastDone = null;
       if (plan?.blocked) tl.append(el("div", { class: "banner stop" }, "🚫 Nothing was run. This one stays off-limits to protect your work."));
-      else if (ev.ok && plan && !plan.steps.length) tl.append(plan.hint ? el("div", { class: "msg warn", style: "font-size:17px;padding:16px" }, "👉 " + plan.hint) : el("div", { class: "banner" }, "✓ Nothing to do. You're all set!"));
+      else if (ev.ok && plan && !plan.steps.length) tl.append(plan.hint ? el("div", { class: "msg warn", style: "font-size:17px;padding:16px" }, "👉 " + plan.hint) : doneBanner("✓ Nothing to do. You're all set!"));
       tl.append(el("div", { class: "row", style: "justify-content:center;margin-top:8px" },
         el("button", { onclick: () => start("status") }, "📍 Check again"))); break;
   }
 }
+
+// ---------- 🎓 Learn mode: a tiny quiz (runs only in this page, touches nothing) ----------
+const QUIZ = [
+  { q: "You changed some files. Which button keeps them safe as a commit on your laptop?", a: ["💾 Save my work", "⬆️ Upload my work", "📦 Stash my work"], why: "Save = git commit, a snapshot on your laptop. Upload sends your commits to GitHub." },
+  { q: "Your upload got rejected because a teammate pushed first. What do you do?", a: ["⬇️ Get latest, then upload again", "Force push over their work", "Delete your branch"], why: "Get their commits first, then upload. Iche never force pushes, because that can wipe out a teammate's work." },
+  { q: "What does 📦 Stash do?", a: ["Puts unfinished work aside so you can bring it back later", "Deletes your changes", "Uploads your changes to GitHub"], why: "A stash is a safe drawer. 📤 Bring back stashed work puts it back in your files." },
+  { q: "Git won't let you switch branches because of unsaved changes. Safest move?", a: ["Stash them, switch, then bring them back", "Undo commits with Hard", "Delete the other branch"], why: "Stashing keeps your changes safe while you switch. Nothing is lost." },
+  { q: "Which ↩️ Undo keeps your changes ready to commit again (staged)?", a: ["Soft", "Hard", "None of them"], why: "Soft keeps changes staged, Mixed keeps them in your files, Hard throws them away. Iche makes a backup before Hard." },
+  { q: "A merge conflict means…", a: ["You and a teammate changed the same lines, and git needs you to pick", "Your code is broken", "GitHub is down"], why: "Nothing is lost. 🤝 Fix a conflict shows both versions side by side so you can choose." },
+  { q: "What is “origin”?", a: ["The copy of your project on GitHub", "Your very first commit", "Another name for main"], why: "origin is the remote, the GitHub copy. origin/main is GitHub's main." },
+  { q: "Why does Iche refuse git push --force?", a: ["It can erase your teammates' work on GitHub", "It's too slow", "It needs a password"], why: "Force push replaces GitHub's history with yours. Iche keeps that off-limits." },
+  { q: "🍒 Copy a commit (cherry-pick) is for…", a: ["Bringing one specific commit onto your branch", "Copying a whole branch", "Backing up your laptop"], why: "Cherry-pick copies just that one commit, nothing else." },
+  { q: "Before 🧹 Clean up for review (rebase), what should be true?", a: ["All your work is saved, with no unsaved changes", "You deleted main", "You force pushed"], why: "Rebase rewrites your commits, so save or stash first. Iche checks this for you." },
+  { q: "Deleting a ☁️ branch on GitHub…", a: ["Removes it for everyone, so Iche keeps a safety copy on your laptop first", "Only removes it from your laptop", "Is how you rename a branch"], why: "☁️ means GitHub's copy. Iche never deletes shared ones like main." },
+  { q: "Where does Gemma, Iche's brain, run?", a: ["On your laptop, so nothing leaves it", "In the cloud", "On GitHub"], why: "Gemma runs locally through Ollama. Your code stays on your machine." },
+  { q: "“Your branch is behind by 3 commits” means…", a: ["GitHub has 3 commits you don't have yet", "You have 3 commits to upload", "3 files have conflicts"], why: "Behind = they have new work. ⬇️ Get latest brings it down. Ahead = you have work to upload." },
+  { q: "What does 📜 History change in your project?", a: ["Nothing, it only shows your commits", "It deletes old commits", "It uploads your commits"], why: "History is read-only: newest commits first, with who and when." },
+];
+const shuffle = a => a.map(x => [Math.random(), x]).sort((p, q) => p[0] - q[0]).map(x => x[1]);
+function learn() {
+  if (busy) return;
+  const round = shuffle(QUIZ).slice(0, 5); let n = 0, score = 0;
+  tl.replaceChildren();
+  const body = el("div");
+  const c = card("🎓 Learn mode · a tiny git quiz", body);
+  c.classList.add("quiz");
+  const ask = () => {
+    const item = round[n], right = item.a[0];
+    const bar = el("div", { class: "bar" }, el("div", { style: `width:${(n / round.length) * 100}%` }));
+    const why = el("div");
+    const opts = shuffle(item.a).map(t => el("button", { onclick: () => {
+      opts.forEach(b => b.disabled = true);
+      const ok = t === right; if (ok) score++;
+      opts.forEach(b => { if (b.textContent === right) b.classList.add("right"); });
+      if (!ok) opts.find(b => b.textContent === t).classList.add("wrong");
+      why.replaceChildren(el("div", { class: ok ? "msg ok" : "msg warn", style: "margin-top:12px" }, (ok ? "✅ Yes! " : "❌ Not quite. ") + item.why),
+        el("div", { class: "row", style: "justify-content:flex-end" }, el("button", { class: "primary", onclick: () => { n++; n < round.length ? ask() : finish(); } }, n + 1 < round.length ? "Next →" : "See my score")));
+    } }, t));
+    body.replaceChildren(bar, el("div", { class: "muted" }, `Question ${n + 1} of ${round.length}`), el("div", { class: "q" }, item.q), el("div", { class: "opts" }, opts), why);
+  };
+  const finish = () => {
+    const best = Math.max(score, Number(localStorage.getItem("quizBest") || 0)); localStorage.setItem("quizBest", best);
+    const stars = Array.from({ length: 5 }, (_, i) => el("span", { style: `animation-delay:${i * 0.12}s` }, i < score ? "⭐" : "☆"));
+    const words = score === 5 ? "Perfect! You're a git pro. 🎉" : score >= 3 ? "Nice work! A couple more rounds and you've got it." : "Good start! Every round teaches you something new.";
+    body.replaceChildren(el("div", { class: "bar" }, el("div", { style: "width:100%" })), el("div", { class: "stars" }, stars),
+      el("div", { class: "q", style: "text-align:center" }, `${score} out of ${round.length}. ${words}`),
+      el("div", { class: "muted", style: "text-align:center" }, `Your best: ${best} / 5`),
+      el("div", { class: "row", style: "justify-content:center;margin-top:12px" }, el("button", { class: "primary", onclick: learn }, "🔁 Play again"), el("button", { onclick: () => tl.replaceChildren() }, "Close")));
+    if (score >= 3) celebrate(body.querySelector(".stars"));
+  };
+  ask();
+}
+$("#learnBtn").onclick = learn;
 
 // ---------- live connection ----------
 function connect() {

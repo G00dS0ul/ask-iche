@@ -50,6 +50,9 @@ export function parse(text) {
     if (cur) cur[cur.at].push(l); else { buf.push(l); lineNo++; }
   }
   flush();
+  // Both sides typed the same thing, and only invisible line endings / trailing spaces differ:
+  // nothing to choose, keep it as it is.
+  for (const p of pieces) if (p.conflict && same(p.mine, p.theirs)) p.identical = true;
   return { pieces, conflicts: pieces.filter(p => p.conflict) };
 }
 
@@ -59,6 +62,9 @@ export const CHOICES = {
   "both-mine-first": "Keep both (mine first)",
   "both-theirs-first": "Keep both (theirs first)",
 };
+
+const norm = s => (s || "").replace(/\r\n/g, "\n").split("\n").map(l => l.trimEnd()).join("\n").trimEnd();
+export const same = (a, b) => norm(a) === norm(b);
 
 const nl = s => (s && !s.endsWith("\n") ? s + "\n" : s);
 export function pick(c, choice) {

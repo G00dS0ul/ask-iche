@@ -51,6 +51,7 @@ export function parseStatus(raw) {
         if (val === "(detached)") s.detached = true; else s.branch = val;
       } else if (key === "branch.upstream") s.upstream = val;
       else if (key === "branch.ab") {
+        s.hasAB = true;
         const m = val.match(/\+(\d+) -(\d+)/);
         if (m) { s.ahead = +m[1]; s.behind = +m[2]; }
       }
@@ -81,6 +82,10 @@ export function parseStatus(raw) {
       s.conflicts.push({ path: fields.slice(10).join(" "), code: fields[1] });
     }
   }
+  // GitHub's copy was deleted ("upstream is gone"): git still names it but has no ahead/behind.
+  // Treat the branch as not linked any more, so Upload makes a fresh copy with push -u.
+  if (s.upstream && !s.hasAB) { s.upstreamGone = s.upstream; s.upstream = null; }
+  delete s.hasAB;
   return s;
 }
 
@@ -169,6 +174,8 @@ export async function collect({ cwd = process.cwd(), fetch = false } = {}) {
   const localBranches = heads.map(h => h.name).filter(n => !n.startsWith("backup/"));
   const backups = heads.filter(h => h.name.startsWith("backup/"));
   const remoteOnly = refs.filter(isRemote).map(short).filter(b => !heads.some(h => h.name === b));
+  // Every branch on GitHub (origin/x), for deleting it there
+  const remoteBranches = refs.filter(isRemote).map(r => ({ remote: r.slice(0, r.indexOf("/")), name: short(r), ref: r }));
   const headHash = recentCommits[0]?.hash || null;
 
   // Commits fail without a name/email, a common first-time problem
@@ -207,6 +214,7 @@ export async function collect({ cwd = process.cwd(), fetch = false } = {}) {
     branches,
     localBranches,
     remoteOnly,
+    remoteBranches,
     backups,
     headHash,
     recentCommits,
@@ -270,6 +278,7 @@ export function toFacts(st) {
   if (st.noCommitsYet) f.push("This repo has no commits yet.");
 
   if (!st.hasRemote) f.push("This repo has no remote (nothing to push to yet).");
+  else if (st.upstreamGone && !st.detached) f.push(`GitHub's copy of ${st.branch} (${st.upstreamGone}) was deleted, so it isn't linked any more. Uploading makes a fresh copy.`);
   else if (!st.upstream && !st.detached) f.push(`Branch ${st.branch} is not linked to a remote branch yet.`);
   else if (st.upstream) {
     if (st.ahead === 0 && st.behind === 0) f.push(`You are up to date with ${st.upstream}.`);
@@ -325,6 +334,7 @@ export function nextHint(st) {
   if (dirty) return "You have unsaved work. Choose \"Save my work\" to commit it, or \"Upload my work\" to commit and push.";
   if (st.ahead) return `You have ${st.ahead} commit${st.ahead > 1 ? "s" : ""} that ${st.ahead > 1 ? "aren't" : "isn't"} on the remote yet. Choose "Upload my work" to push.`;
   if (st.behind) return "Your team has new changes. Choose \"Get latest\" to pull them.";
+  if (st.upstreamGone && st.branch) return `GitHub's copy of ${st.branch} was deleted. Choose "Upload my work" if you want it back on GitHub.`;
   if (st.stashCount) return `You have ${st.stashCount} stash${st.stashCount > 1 ? "es" : ""} put aside. Choose "Bring back stashed work" when you want ${st.stashCount > 1 ? "one" : "it"} back.`;
   return null;
 }

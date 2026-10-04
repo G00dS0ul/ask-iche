@@ -44,6 +44,9 @@ export const CANNED = {
 const FIXED = new Set(["backup", "squash-reset", "reset-soft", "reset-mixed", "reset-hard", "finish-merge", "cherry-pick",
   "push-lease", "stash-pop-mine", "switch", "new-branch", "rename-branch", "delete-branch", "log"]);
 const fixedReason = s => s.reason || (FIXED.has(s.why) ? CANNED[s.why] : null);
+// Everything on screen is already written by Iche (summary + every step reason): skip Gemma, no waiting.
+export const allFixed = plan => !!plan.summary && plan.steps.every(s => fixedReason(s));
+const noTicks = t => t.replace(/`/g, "");
 
 function fallbackSummary(plan) {
   if (plan.summary) return plan.summary;
@@ -110,33 +113,39 @@ export function warmup() {
   }).catch(() => {});
 }
 
-async function chatStream(messages, { onToken, options = {}, format } = {}) {
+async function chatStream(messages, { onToken, options = {}, format, signal } = {}) {
   const t0 = Date.now();
-  const res = await fetch(`${HOST}/api/chat`, {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: MODEL, messages, stream: true, keep_alive: "30m",
-      ...(format ? { format } : {}),
-      options: { temperature: 0.3, num_predict: 300, ...options },
-    }),
-    signal: AbortSignal.timeout(120000),
-  });
-  if (!res.ok) throw new Error(`Ollama error ${res.status}`);
-  let text = "", buf = "", stats = {}, firstTokenMs = null;
-  const decoder = new TextDecoder();
-  for await (const chunk of res.body) {
-    buf += decoder.decode(chunk, { stream: true });
-    let nl;
-    while ((nl = buf.indexOf("\n")) >= 0) {
-      const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1);
-      if (!line) continue;
-      const j = JSON.parse(line);
-      const tok = j.message?.content || "";
-      if (tok) { if (firstTokenMs === null) firstTokenMs = Date.now() - t0; text += tok; onToken?.(tok); }
-      if (j.done) stats = { totalMs: Date.now() - t0, firstTokenMs, evalCount: j.eval_count, loadMs: Math.round((j.load_duration || 0) / 1e6) };
+  // Stops after 2 minutes, or early when a newer plan replaces this one (signal).
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(new Error("Gemma took too long")), 120000);
+  if (signal) { if (signal.aborted) ctl.abort(); else signal.addEventListener("abort", () => ctl.abort(), { once: true }); }
+  try {
+    const res = await fetch(`${HOST}/api/chat`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: MODEL, messages, stream: true, keep_alive: "30m",
+        ...(format ? { format } : {}),
+        options: { temperature: 0.3, num_predict: 300, ...options },
+      }),
+      signal: ctl.signal,
+    });
+    if (!res.ok) throw new Error(`Ollama error ${res.status}`);
+    let text = "", buf = "", stats = {}, firstTokenMs = null;
+    const decoder = new TextDecoder();
+    for await (const chunk of res.body) {
+      buf += decoder.decode(chunk, { stream: true });
+      let nl;
+      while ((nl = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1);
+        if (!line) continue;
+        const j = JSON.parse(line);
+        const tok = j.message?.content || "";
+        if (tok) { if (firstTokenMs === null) firstTokenMs = Date.now() - t0; text += tok; onToken?.(tok); }
+        if (j.done) stats = { totalMs: Date.now() - t0, firstTokenMs, evalCount: j.eval_count, loadMs: Math.round((j.load_duration || 0) / 1e6) };
+      }
     }
-  }
-  return { text, stats };
+    return { text, stats };
+  } finally { clearTimeout(timer); }
 }
 
 // ---------- 1) Explain a plan (streams line by line) ----------
@@ -202,10 +211,11 @@ const forModel = d => d.replace(/\{(\w+)\}/g, (_, k) => PLACEHOLDER_WORDS[k] || 
 /**
  * @param {object} plan   from rules.plan()
  * @param {string[]} facts from collector.toFacts()
- * @param {object} cb     { onSummary(text), onReason(index, text), onTip(text) } — called as lines arrive
+ * @param {object} cb     { onSummary(text), onReason(index, text), onTip(text), onPartial(key, index, textSoFar) } — called as lines arrive
+ * @param {object} opts   { offline, signal } — signal aborts early (a newer plan replaced this one)
  * @returns {{ ai: boolean, summary, reasons: string[], tip, stats?, fellBack?: string }}
  */
-export async function explainPlan(plan, facts, cb = {}, { offline = false } = {}) {
+export async function explainPlan(plan, facts, cb = {}, { offline = false, signal } = {}) {
   const steps = plan.steps;
   const canned = () => ({
     summary: fallbackSummary(plan),
@@ -213,10 +223,10 @@ export async function explainPlan(plan, facts, cb = {}, { offline = false } = {}
     tip: plan.tip || null,
   });
   const sendCanned = c => { cb.onSummary?.(c.summary); c.reasons.forEach((r, i) => cb.onReason?.(i, r)); if (c.tip) cb.onTip?.(c.tip); };
-  if (offline) {
+  if (offline || allFixed(plan)) {
     const c = canned();
     sendCanned(c);
-    return { ai: false, ...c };
+    return { ai: false, ...c, skipped: !offline };
   }
 
   const ctx = plan.context?.length ? `CONTEXT:\n- ${plan.context.join("\n- ")}\n` : "";
@@ -231,7 +241,7 @@ export async function explainPlan(plan, facts, cb = {}, { offline = false } = {}
   const handleLine = line => {
     const m = line.match(/^\s*(SUMMARY|TIP|\d+)\s*[:.)-]\s*(.+)$/i);
     if (!m) return;
-    const key = m[1].toUpperCase(), val = m[2].trim();
+    const key = m[1].toUpperCase(), val = noTicks(m[2]).trim();
     if (key === "SUMMARY" && !seen.summary) { seen.summary = val; cb.onSummary?.(val); }
     else if (key === "TIP" && !seen.tip) { seen.tip = val; cb.onTip?.(val); }
     else if (/^\d+$/.test(key)) {
@@ -240,10 +250,20 @@ export async function explainPlan(plan, facts, cb = {}, { offline = false } = {}
     }
   };
 
+  // Words typed so far on the current line, so the screen fills in live (slow laptops feel faster).
+  const showPartial = () => {
+    const m = partial.match(/^\s*(SUMMARY|TIP|\d+)\s*[:.)-]\s*(.*)$/i);
+    if (!m || !m[2].trim() || !cb.onPartial) return;
+    const key = m[1].toUpperCase(), txt = noTicks(m[2]);
+    if (key === "SUMMARY" && !seen.summary) cb.onPartial("summary", null, txt);
+    else if (key === "TIP" && !seen.tip) cb.onPartial("tip", null, txt);
+    else if (/^\d+$/.test(key)) { const i = +key - 1; if (i === seen.reasons.length && i < steps.length && !fixedReason(steps[i])) cb.onPartial("reason", i, txt); }
+  };
+
   try {
     const { stats } = await chatStream(
       [{ role: "system", content: steps.length ? systemFor(steps) : STATUS_SYSTEM }, { role: "user", content: user }],
-      { onToken: t => { partial += t; let nl; while ((nl = partial.indexOf("\n")) >= 0) { handleLine(partial.slice(0, nl)); partial = partial.slice(nl + 1); } } }
+      { signal, onToken: t => { partial += t; let nl; while ((nl = partial.indexOf("\n")) >= 0) { handleLine(partial.slice(0, nl)); partial = partial.slice(nl + 1); } showPartial(); } }
     );
     if (partial) handleLine(partial);
 
@@ -255,6 +275,12 @@ export async function explainPlan(plan, facts, cb = {}, { offline = false } = {}
     return { ai: true, ...seen, stats, fellBack };
   } catch (e) {
     const c = canned();
+    if (signal?.aborted) { // replaced or stopped: just fill what's still empty with the built-in text
+      if (!seen.summary) cb.onSummary?.(c.summary);
+      for (let i = seen.reasons.length; i < steps.length; i++) cb.onReason?.(i, c.reasons[i]);
+      if (c.tip && !seen.tip) cb.onTip?.(c.tip);
+      return { ai: false, aborted: true, ...c };
+    }
     if (seen.summary) c.summary = seen.summary; // already shown
     cb.onSummary?.(c.summary);
     c.reasons.forEach((r, i) => cb.onReason?.(i, r));
@@ -326,7 +352,7 @@ export async function explainConflict(file, c, cb = {}) {
     `HINTS (exact, trust these):\n- YOURS ${lineDiff(c.base, c.mine)}\n- THEIRS ${lineDiff(c.base, c.theirs)}`;
   const seen = {};
   const handle = line => {
-    const m = line.replace(/\*\*/g, "").match(/^\s*(YOU|THEM|NOTE)\s*:\s*(.+)$/i);
+    const m = line.replace(/\*\*|`/g, "").match(/^\s*(YOU|THEM|NOTE)\s*:\s*(.+)$/i);
     if (!m) return;
     const k = m[1].toLowerCase(); if (seen[k]) return;
     let t = m[2].trim();

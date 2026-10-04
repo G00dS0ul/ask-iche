@@ -11,7 +11,7 @@ import { existsSync } from "node:fs";
 import { run } from "./runner.mjs";
 import { toFacts, nextHint } from "./collector.mjs";
 import { INTENTS, quickIntent, refuseText } from "./rules.mjs";
-import { MODEL, isAvailable, warmup, explainPlan, detectIntent, explainConflict } from "./gemma.mjs";
+import { MODEL, isAvailable, warmup, explainPlan, allFixed, detectIntent, explainConflict } from "./gemma.mjs";
 import { CHOICES } from "./conflicts.mjs";
 
 const c = { dim: s => `\x1b[2m${s}\x1b[0m`, bold: s => `\x1b[1m${s}\x1b[0m`, green: s => `\x1b[32m${s}\x1b[0m`,
@@ -92,6 +92,7 @@ const ui = {
   say: (t, kind) => console.log(({ ok: c.green, warn: c.yellow, error: c.red, info: c.dim })[kind]?.(t) ?? t),
   ask: async (q, meta = {}) => {
     if (meta.kind === "pick") {
+      if (meta.blocker) console.log("\n" + c.yellow(c.bold(meta.blocker.title)) + "\n" + c.yellow("  " + meta.blocker.text) + (meta.blocker.files?.length ? "\n" + c.dim("  Files: " + meta.blocker.files.join(", ")) : ""));
       console.log("\n" + c.bold(q));
       if (meta.note) console.log(c.dim("  " + meta.note));
       meta.options.forEach((o, n) => console.log(`  ${meta.byValue ? "" : `${n + 1}) `}${o.label}${o.hint ? c.dim("  · " + o.hint) : ""}`));
@@ -143,9 +144,10 @@ async function explain(p, st) {
   const facts = toFacts(st);
   const done = () => { const h = nextHint(st); console.log(h ? c.yellow("\n👉 " + h.replace(/"(Save my work|Upload my work|Get latest|Fix a conflict|Bring back stashed work)"/g, (_, l) => `"ask-iche ${({ "Save my work": "save", "Upload my work": "push", "Get latest": "pull", "Fix a conflict": "resolve", "Bring back stashed work": "pop" })[l]}"`)) : c.green("\nNothing to do. You're all set ✓")); };
   if (!p.steps.length && !(ai.up && ai.hasModel)) { done(); console.log(); return; }
-  if (ai.up && ai.hasModel) process.stdout.write(c.dim(`\n  Iche is thinking… (${MODEL}, on your laptop)`));
+  const think = ai.up && ai.hasModel && !allFixed(p);
+  if (think) process.stdout.write(c.dim(`\n  Iche is thinking… (${MODEL}, on your laptop)`));
   let cleared = false;
-  const clear = () => { if (!cleared && ai.up && ai.hasModel) { process.stdout.write("\r\x1b[K"); cleared = true; } };
+  const clear = () => { if (!cleared && think) { process.stdout.write("\r\x1b[K"); cleared = true; } };
   const r = await explainPlan(p, facts, {
     onSummary: t => { clear(); console.log("\n" + c.magenta("💬 ") + t); if (p.steps.length) console.log(c.bold("\nThe plan:")); },
     onReason: (i, t) => { clear(); const s = p.steps[i]; console.log(`  ${i + 1}. ${riskTag[s.risk] || ""} ${c.bold(s.display)}\n     ${c.dim(t)}`); },
