@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // ask-iche.mjs — the CLI.
 //   node ask-iche.mjs push [repo]                    (a command)
+//   commands: status save push pull resolve | stash stashes pop undo cleanup cherry-pick
 //   node ask-iche.mjs "my push got rejected" [repo]  (plain English)
 // Flags: --no-ai (built-in explanations only), --no-fetch
 
@@ -47,23 +48,27 @@ async function question(q) {
 
 // ----- work out the intent -----
 const ALIASES = { sync: "push", upload: "push", update: "pull", download: "pull", commit: "save",
-  fix: "resolve", conflict: "resolve", where: "status", check: "status", force: "force-push" };
+  fix: "resolve", conflict: "resolve", where: "status", check: "status", force: "force-push",
+  stashes: "stash-list", list: "stash-list", pop: "unstash", "stash-pop": "unstash", undo: "reset", uncommit: "reset",
+  cleanup: "rebase", "clean-up": "rebase", squash: "rebase", "cherry": "cherry-pick", pick: "cherry-pick", copy: "cherry-pick" };
 let intent = ALIASES[said.toLowerCase()] || (INTENTS.includes(said.toLowerCase()) ? said.toLowerCase() : null);
 
 if (!intent) {
-  if (["revert", "undo", "reset"].includes(said.toLowerCase())) {
-    console.log(c.yellow(`Undoing commits is risky, so Ask Iche doesn't do it yet. Ask the real Iche for this one. 😅`));
+  if (["revert"].includes(said.toLowerCase())) {
+    console.log(c.yellow(`Reverting pushed commits isn't in Ask Iche yet. Try "undo" for commits you haven't pushed, or ask the real Iche. 😅`));
     rl.close(); process.exit(1);
   }
   const d = ai.up && ai.hasModel ? await detectIntent(said) : await detectIntent(said).catch(() => ({ intent: null }));
   if (!d.intent) {
     console.log(c.yellow(`I'm not sure what you want to do with "${said}".`) + " Nothing was changed.");
-    console.log("Try: " + ["status", "save", "push", "pull", "resolve"].map(c.bold).join(", ") + c.dim(`  or describe it, e.g. "my push got rejected"`));
+    console.log("Try: " + ["status", "save", "push", "pull", "resolve", "stash", "stashes", "pop", "undo", "cleanup", "cherry-pick"].map(c.bold).join(", ") + c.dim(`  or describe it, e.g. "my push got rejected"`));
     rl.close(); process.exit(1);
   }
-  const words = { status: "check where you are", save: "save (commit) your work", push: "push your work", pull: "get the latest changes", resolve: "fix a conflict", "force-push": "force push" };
+  const words = { status: "check where you are", save: "save (commit) your work", push: "push your work", pull: "get the latest changes", resolve: "fix a conflict", "force-push": "force push",
+    stash: "stash (put aside) your unfinished work", "stash-list": "see your stash list", unstash: "bring back stashed work", reset: "undo commits",
+    rebase: "clean up your branch for review", "cherry-pick": "copy a commit from another branch" };
   const ok = (await question(`Sounds like you want to ${c.bold(words[d.intent])}. Right? ${c.dim("[Y/n] ")}`)).trim().toLowerCase();
-  if (ok === "n" || ok === "no" || (ok === "" && inputClosed)) { console.log("Okay! Try saying it another way, or use: status, save, push, pull, resolve."); rl.close(); process.exit(1); }
+  if (ok === "n" || ok === "no" || (ok === "" && inputClosed)) { console.log("Okay! Try saying it another way, or use: status, save, push, pull, resolve, stash, stashes, pop, undo, cleanup, cherry-pick."); rl.close(); process.exit(1); }
   intent = d.intent;
 }
 
@@ -81,7 +86,15 @@ function block(text, color, max = 15) {
 }
 const ui = {
   say: (t, kind) => console.log(({ ok: c.green, warn: c.yellow, error: c.red, info: c.dim })[kind]?.(t) ?? t),
-  ask: async q => question(c.bold(q) + " "),
+  ask: async (q, meta = {}) => {
+    if (meta.kind === "pick") {
+      console.log("\n" + c.bold(q));
+      if (meta.note) console.log(c.dim("  " + meta.note));
+      meta.options.forEach((o, n) => console.log(`  ${meta.byValue ? "" : `${n + 1}) `}${o.label}${o.hint ? c.dim("  · " + o.hint) : ""}`));
+      return question(c.bold(meta.byValue ? "Stash number or name: " : meta.typed ? `Pick 1-${meta.options.length} (or type it): ` : `Pick 1-${meta.options.length}: `));
+    }
+    return question(c.bold(q) + " ");
+  },
   confirm: async (q, strict) => {
     for (let tries = 1; ; tries++) {
       const a = (await question(q + (strict ? "" : c.dim("[y/N] ")))).trim().toLowerCase();
@@ -123,7 +136,7 @@ const ui = {
 
 async function explain(p, st) {
   const facts = toFacts(st);
-  const done = () => { const h = nextHint(st); console.log(h ? c.yellow("\n👉 " + h.replace(/"(Save my work|Upload my work|Get latest|Fix a conflict)"/g, (_, l) => `"ask-iche ${({ "Save my work": "save", "Upload my work": "push", "Get latest": "pull", "Fix a conflict": "resolve" })[l]}"`)) : c.green("\nNothing to do. You're all set ✓")); };
+  const done = () => { const h = nextHint(st); console.log(h ? c.yellow("\n👉 " + h.replace(/"(Save my work|Upload my work|Get latest|Fix a conflict|Bring back stashed work)"/g, (_, l) => `"ask-iche ${({ "Save my work": "save", "Upload my work": "push", "Get latest": "pull", "Fix a conflict": "resolve", "Bring back stashed work": "pop" })[l]}"`)) : c.green("\nNothing to do. You're all set ✓")); };
   if (!p.steps.length && !(ai.up && ai.hasModel)) { done(); console.log(); return; }
   if (ai.up && ai.hasModel) process.stdout.write(c.dim(`\n  Ask Iche is thinking… (${MODEL}, on your laptop)`));
   let cleared = false;

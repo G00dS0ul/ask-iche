@@ -80,14 +80,18 @@ async function explain(p, st) {
 
 // ---------- intent (same rules as the CLI) ----------
 const ALIASES = { sync: "push", upload: "push", update: "pull", download: "pull", commit: "save",
-  fix: "resolve", conflict: "resolve", where: "status", check: "status", force: "force-push" };
+  fix: "resolve", conflict: "resolve", where: "status", check: "status", force: "force-push",
+  stashes: "stash-list", pop: "unstash", unstash: "unstash", undo: "reset", uncommit: "reset",
+  cleanup: "rebase", "clean up": "rebase", squash: "rebase", cherry: "cherry-pick" };
 const WORDS = { status: "check where you are", save: "save (commit) your work", push: "upload (push) your work",
-  pull: "get the latest changes", resolve: "fix a conflict", "force-push": "force push" };
+  pull: "get the latest changes", resolve: "fix a conflict", "force-push": "force push",
+  stash: "stash (put aside) your unfinished work", "stash-list": "see your stash list", unstash: "bring back stashed work",
+  reset: "undo commits", rebase: "clean up your branch for review", "cherry-pick": "copy a commit from another branch" };
 
 async function findIntent(text) {
   const t = String(text || "").trim().toLowerCase();
   if (!t) return { intent: null };
-  if (["revert", "undo", "reset"].includes(t)) return { intent: null, refused: "Undoing commits is risky, so Ask Iche doesn't do it yet. Ask the real Iche for this one. 😅" };
+  if (t === "revert") return { intent: null, refused: "Reverting pushed commits isn't in Ask Iche yet. Try \"Undo commits\" for ones you haven't pushed, or ask the real Iche. 😅" };
   const direct = ALIASES[t] || (INTENTS.includes(t) ? t : null);
   if (direct) return { intent: direct, words: WORDS[direct], direct: true };
   const d = await detectIntent(text).catch(() => ({ intent: null }));

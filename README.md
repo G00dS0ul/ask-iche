@@ -41,10 +41,25 @@ What do you want to keep?
 
 It previews the result, backs up the old file to `.git/ask-iche-backup/`, and the **code** rebuilds the file, not the AI.
 
+### More git tools
+
+| Button / command | What it does |
+| --- | --- |
+| 📦 **Stash my work** · `stash` | Puts unfinished work aside. You always give the stash a name, like a commit message. |
+| 🗂️ **My stashes** · `stashes` | Shows your stash list: number, name, branch, and when. |
+| 📤 **Bring back stashed work** · `pop` | Pops a stash. Pick it, or type its number (`0`) or its name (`login-form-wip`). |
+| ⬇️ **Get latest** with unsaved work | Asks: **commit** it or **stash** it? Stash → named stash, pull, then pop it back on top. |
+| ↩️ **Undo commits** · `undo` | Soft (keep changes staged), mixed (keep as unsaved edits) or hard (throw away). Only for commits not pushed yet. |
+| 🧹 **Clean up for review** · `cleanup` | Rebases your branch on the latest `main`. Optionally squashes all your commits into one clean commit, then pushes with `--force-with-lease`. |
+| 🍒 **Copy a commit** · `cherry-pick` | Pick a branch, pick a commit, and copy it onto your branch. |
+
+If a stash pop, rebase or cherry-pick hits a conflict, the same side-by-side conflict helper takes over.
+
 ### Safety first
 
 - **The code plans, the model teaches.** I benchmarked 3 open models on the same git problem. None planned correctly twice in a row, so a deterministic rules engine decides the steps and Gemma only explains them.
-- **A guard checks every command** right before it runs. Force push, `reset --hard`, `clean -f`, `branch -D`, `rebase`, `--amend`, and unknown commands are blocked.
+- **A guard checks every command** right before it runs. Unknown commands are blocked. Plain `--force` push, rewriting `main`/`master`/`develop`, and interactive rebase are **never** allowed.
+- **Risky steps only run when the plan asks for them**, and you must type `yes`: `reset --hard`, `rebase`, and `push --force-with-lease` (only on your own branch). A `backup/...` branch is made first, so you can always get your commits back.
 - **Never opens vim.** Merges finish without dropping you into an editor.
 - **Works without AI.** If Ollama isn't running, Ask Iche still works with built-in explanations.
 
@@ -87,6 +102,12 @@ node ask-iche.mjs push     [repo-path]       # save + upload my work safely
 node ask-iche.mjs pull     [repo-path]       # get the latest changes
 node ask-iche.mjs save     [repo-path]       # commit my work
 node ask-iche.mjs resolve  [repo-path]       # fix a conflict
+node ask-iche.mjs stash    [repo-path]       # put unfinished work aside (named)
+node ask-iche.mjs stashes  [repo-path]       # see the stash list
+node ask-iche.mjs pop      [repo-path]       # bring a stash back (by number or name)
+node ask-iche.mjs undo     [repo-path]       # undo commits: soft / mixed / hard
+node ask-iche.mjs cleanup  [repo-path]       # rebase on main (+ squash) for review
+node ask-iche.mjs cherry-pick [repo-path]    # copy one commit from another branch
 node ask-iche.mjs "my push got rejected" [repo-path]   # or just describe it
 ```
 
@@ -138,7 +159,11 @@ Your message ─┐
 ## Roadmap
 
 - [x] A friendly web UI instead of the terminal (`node app.mjs`)
-- [ ] Undo help (safely reverting a commit)
+- [x] Stash (named), stash list, pop by number or name
+- [x] Undo commits (soft / mixed / hard reset) with a backup branch
+- [x] Clean up for review: rebase on main + optional squash
+- [x] Copy a commit (cherry-pick)
+- [ ] Revert for commits that are already pushed
 - [ ] Learn mode: a tiny quiz after each action
 
 ## License

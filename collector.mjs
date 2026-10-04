@@ -127,14 +127,41 @@ export async function collect({ cwd = process.cwd(), fetch = false } = {}) {
 
   const status = parseStatus(await git(["status", "--porcelain=v2", "--branch", "-z"], cwd));
 
-  const logRaw = status.noCommitsYet ? "" : (await tryGit(["log", "--format=%h%x09%s", "-5"], cwd)) || "";
+  const logRaw = status.noCommitsYet ? "" : (await tryGit(["log", "--format=%h%x09%s", "-10"], cwd)) || "";
   const recentCommits = logRaw.split("\n").filter(Boolean).map(l => {
     const [hash, ...msg] = l.split("\t");
     return { hash, message: msg.join("\t") };
   });
 
-  const stashRaw = (await tryGit(["stash", "list"], cwd)) || "";
-  const stashCount = stashRaw.split("\n").filter(Boolean).length;
+  // Stashes: index, the name she gave it, the branch it came from, and when
+  const stashes = parseStashes((await tryGit(["stash", "list", "--format=%gd%x09%gs%x09%cr"], cwd)) || "");
+  const stashCount = stashes.length;
+
+  // The team's main branch (origin/main, origin/master, ...), used by "Clean up for review"
+  const base = status.noCommitsYet ? null : await findBase(cwd, remotes);
+  let aheadBase = 0, behindBase = 0, mergeBase = null, branchCommits = [];
+  const onBase = !!(base && status.branch && base.replace(/^[^/]+\//, "") === status.branch);
+  if (base && !status.detached) {
+    const lr = (await tryGit(["rev-list", "--left-right", "--count", `${base}...HEAD`], cwd))?.trim().split(/\s+/);
+    if (lr) { behindBase = +lr[0] || 0; aheadBase = +lr[1] || 0; }
+    mergeBase = (await tryGit(["merge-base", base, "HEAD"], cwd))?.trim() || null;
+    const bl = aheadBase ? (await tryGit(["log", "--format=%h%x09%s", "-30", `${base}..HEAD`], cwd)) || "" : "";
+    branchCommits = bl.split("\n").filter(Boolean).map(l => { const [hash, ...m] = l.split("\t"); return { hash, message: m.join("\t") }; });
+  }
+
+  // Which recent commits are already shared (pushed)? Undoing those would need a force push.
+  const localOnly = status.upstream ? status.ahead : base ? aheadBase : recentCommits.length;
+  recentCommits.forEach((c, i) => { c.pushed = i >= localOnly; });
+
+  // Other branches, for "Copy a commit" (cherry-pick)
+  const refs = ((await tryGit(["for-each-ref", "--format=%(refname:short)", "refs/heads", "refs/remotes"], cwd)) || "")
+    .split("\n").map(r => r.trim()).filter(r => r && !r.endsWith("/HEAD") && !remotes.includes(r) && !r.startsWith("backup/"));
+  // Remote branches first (they're the latest). Skip a local branch if origin has the same one,
+  // and skip her own branch (local or remote copy).
+  const isRemote = r => remotes.some(x => r.startsWith(x + "/"));
+  const short = r => (isRemote(r) ? r.slice(r.indexOf("/") + 1) : r);
+  const branches = [...refs.filter(isRemote), ...refs.filter(r => !isRemote(r) && !refs.includes(`origin/${r}`))]
+    .filter(r => short(r) !== status.branch);
 
   // Commits fail without a name/email, a common first-time problem
   const userName = (await tryGit(["config", "user.name"], cwd))?.trim() || null;
@@ -162,11 +189,46 @@ export async function collect({ cwd = process.cwd(), fetch = false } = {}) {
     operation: detectOperation(gitDir),
     hasIdentity: Boolean(userName && userEmail),
     stashCount,
+    stashes,
+    base,
+    onBase,
+    aheadBase,
+    behindBase,
+    mergeBase,
+    branchCommits,
+    branches,
     recentCommits,
     fetched,
     fetchError,
     lastFetch,
   };
+}
+
+// "stash@{0}\tOn feature/login: login-form-wip\t2 hours ago"
+export function parseStashes(raw) {
+  return raw.split("\n").filter(Boolean).map(l => {
+    const [ref, subject = "", when = ""] = l.split("\t");
+    const m = subject.match(/^(?:WIP )?[Oo]n ([^:]+): (.*)$/);
+    return { index: Number(ref.match(/\{(\d+)\}/)?.[1] ?? 0), ref, branch: m ? m[1] : null, name: m ? m[2] : subject, when };
+  });
+}
+
+async function findBase(cwd, remotes) {
+  const r = remotes.includes("origin") ? "origin" : remotes[0];
+  if (r) {
+    const head = (await tryGit(["rev-parse", "--abbrev-ref", `${r}/HEAD`], cwd))?.trim();
+    if (head && head !== `${r}/HEAD`) return head;
+  }
+  for (const c of [...(r ? [`${r}/main`, `${r}/master`] : []), "main", "master"])
+    if (await tryGit(["rev-parse", "--verify", "--quiet", c], cwd)) return c;
+  return null;
+}
+
+/** Commits on `ref` that aren't on your branch yet (for cherry-pick). Newest first. */
+export async function commitsOn(cwd, ref) {
+  const raw = (await tryGit(["log", "--cherry-pick", "--right-only", "--no-merges", "-15",
+    "--format=%h%x09%s%x09%an%x09%cr", `HEAD...${ref}`, "--"], cwd)) || "";
+  return raw.split("\n").filter(Boolean).map(l => { const [hash, message, author, when] = l.split("\t"); return { hash, message, author, when }; });
 }
 
 function ago(d) {
@@ -216,7 +278,12 @@ export function toFacts(st) {
   if (!st.staged.length && !st.unstaged.length && !st.untracked.length && !st.conflicts.length)
     f.push("You have no uncommitted changes.");
   if (!st.hasIdentity) f.push("Git doesn't know your name and email yet, so commits will fail.");
-  if (st.stashCount) f.push(`You have ${plural(st.stashCount, "stash")} saved.`);
+  if (st.stashCount) {
+    f.push(`You have ${plural(st.stashCount, "stash")} saved (work put aside):`);
+    st.stashes.slice(0, 10).forEach(x => f.push(`  stash #${x.index}: "${x.name}"${x.branch ? ` (from branch ${x.branch}` : " ("}${x.when ? `, ${x.when}` : ""})`));
+  }
+  if (st.base && !st.onBase && !st.detached && (st.aheadBase || st.behindBase))
+    f.push(`Compared with ${st.base}: your branch has ${plural(st.aheadBase, "commit")} of its own, and ${st.base} has ${plural(st.behindBase, "new commit")} you don't have.`);
 
   if (st.fetchError) f.push(`Could not check the remote (${st.fetchError}). Ahead/behind may be out of date.`);
   else if (st.hasRemote && !st.fetched) {
@@ -246,5 +313,6 @@ export function nextHint(st) {
   if (dirty) return "You have unsaved work. Choose \"Save my work\" to commit it, or \"Upload my work\" to commit and push.";
   if (st.ahead) return `You have ${st.ahead} commit${st.ahead > 1 ? "s" : ""} that ${st.ahead > 1 ? "aren't" : "isn't"} on the remote yet. Choose "Upload my work" to push.`;
   if (st.behind) return "Your team has new changes. Choose \"Get latest\" to pull them.";
+  if (st.stashCount) return `You have ${st.stashCount} stash${st.stashCount > 1 ? "es" : ""} put aside. Choose "Bring back stashed work" when you want ${st.stashCount > 1 ? "one" : "it"} back.`;
   return null;
 }

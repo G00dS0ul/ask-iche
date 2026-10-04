@@ -21,6 +21,19 @@ export const CANNED = {
   "add-remote": "Connects this folder to your repo on GitHub.",
   "set-name": "Tells git the name to put on your commits.",
   "set-email": "Tells git the email to put on your commits.",
+  stash: "Puts your unsaved changes aside in a named stash, so your folder is clean. Nothing is lost.",
+  "stash-pop": "Brings that stash back into your files and removes it from the stash list.",
+  "stash-pop-mine": "Brings back the work you put aside, on top of the latest code.",
+  unstage: "Keeps your fixed files as normal unsaved changes, just like before you stashed.",
+  backup: "Makes a backup branch: a safety copy of your commits, in case you want them back.",
+  "reset-soft": "Undoes the commit(s) but keeps every change staged, ready to commit again.",
+  "reset-mixed": "Undoes the commit(s) and keeps the changes as unsaved edits in your files.",
+  "reset-hard": "Undoes the commit(s) AND deletes their changes from your files.",
+  "squash-reset": "Un-commits your branch's commits but keeps all the changes staged, so they can become one commit.",
+  "squash-commit": "Saves all your branch's work as one clean commit for the reviewer.",
+  rebase: "Replays your commits on top of the latest main branch, so your branch is up to date and easy to review.",
+  "push-lease": "Uploads your cleaned-up branch. It only replaces your own branch, and refuses if someone else pushed to it.",
+  "cherry-pick": "Copies that one commit onto your current branch as a new commit.",
 };
 
 function fallbackSummary(plan) {
@@ -39,6 +52,25 @@ function fallbackSummary(plan) {
     "up-to-date": "You're already up to date. Nothing to pull.",
     "nothing-to-push": "Nothing to push, you're already in sync.",
     "nothing-to-save": "There's nothing new to save.",
+    "pull-with-stash": "Your work isn't finished, so it goes into a named stash, the latest code comes down, and your work comes back on top.",
+    stash: "You have unsaved changes. Stashing puts them aside with a name so your folder is clean.",
+    "nothing-to-stash": "There's nothing to stash. You have no unsaved changes.",
+    "stash-list": "Here are the stashes you put aside. Each one has a number and the name you gave it.",
+    "no-stashes": "You don't have any stashes saved.",
+    unstash: "This brings your stashed work back into your files.",
+    "stash-conflict": "Your stashed work and the latest code changed the same lines, so you need to choose.",
+    "undo-soft": "This undoes your latest commit(s) but keeps all the changes, ready to commit again.",
+    "undo-mixed": "This undoes your latest commit(s) and leaves the changes as unsaved edits.",
+    "undo-hard": "This undoes your latest commit(s) and throws away their changes. A backup branch is made first.",
+    "undo-pushed-refused": "Those commits are already on GitHub, so undoing them here isn't safe.",
+    "nothing-to-undo": "There are no commits to undo yet.",
+    "clean-squash": "Your branch becomes one clean commit on top of the latest main, which is much easier to review.",
+    "clean-rebase": "Your commits move on top of the latest main, so the reviewer only sees your changes.",
+    "nothing-to-clean": "Your branch has no commits of its own yet, so there's nothing to clean up.",
+    "already-on-latest": "Your branch is already on top of the latest main.",
+    "on-main": "You're on the shared main branch. Clean-up is only for your own feature branch.",
+    "cherry-pick": "This copies one commit from another branch onto yours.",
+    "nothing-to-pick": "Your branch already has every commit from that branch.",
   };
   return s[plan.situation] || "Here's where your repo is right now.";
 }
@@ -108,12 +140,30 @@ Rules:
 - Only mention files, branches, and numbers that appear in FACTS. Never invent any.
 - Short, simple, encouraging sentences. One line each.
 
-Reply in EXACTLY this format, nothing else:
+{EXTRA}Reply in EXACTLY this format, nothing else:
 SUMMARY: <1-2 sentences on what is going on and why>
 1: <reason for step 1>
 2: <reason for step 2>
 (one numbered line per step)
 TIP: <one short learning tip>`;
+
+// Extra facts about commands, only added when a step uses them (shorter prompt = faster on a CPU).
+const COMMAND_NOTES = [
+  [/stash push/, `- "git stash push -m <name>" puts unsaved changes aside in a named stash. Nothing is lost.`],
+  [/stash pop/, `- "git stash pop" brings a stash back into the files and removes it from the stash list.`],
+  [/reset --soft/, `- "git reset --soft" undoes commits but keeps the changes staged.`],
+  [/reset --mixed/, `- "git reset --mixed" undoes commits and keeps the changes as unsaved edits.`],
+  [/reset --hard/, `- "git reset --hard" undoes commits AND deletes their changes. Say this clearly.`],
+  [/branch backup\//, `- "git branch backup/..." only makes a safety copy. It does not switch branches.`],
+  [/rebase /, `- "git rebase <base>" replays her commits on top of the latest base branch. It may stop for a conflict.`],
+  [/force-with-lease/, `- "git push --force-with-lease" replaces only her own branch on the remote and refuses if someone else pushed. Never call it a normal push.`],
+  [/cherry-pick /, `- "git cherry-pick <hash>" copies one commit from another branch onto the current branch.`],
+];
+const systemFor = steps => {
+  const all = steps.map(s => s.display).join("\n");
+  const extra = COMMAND_NOTES.filter(([re]) => re.test(all)).map(([, t]) => t).join("\n");
+  return EXPLAIN_SYSTEM.replace("{EXTRA}", extra ? `Commands in this plan:\n${extra}\n\n` : "");
+};
 
 const STATUS_SYSTEM = `You are "Ask Iche", a friendly git mentor. Speak to her as "you".
 Using ONLY the FACTS, explain where her repo is in 1-2 short sentences, then give one tip.
@@ -161,7 +211,7 @@ export async function explainPlan(plan, facts, cb = {}, { offline = false } = {}
 
   try {
     const { stats } = await chatStream(
-      [{ role: "system", content: steps.length ? EXPLAIN_SYSTEM : STATUS_SYSTEM }, { role: "user", content: user }],
+      [{ role: "system", content: steps.length ? systemFor(steps) : STATUS_SYSTEM }, { role: "user", content: user }],
       { onToken: t => { partial += t; let nl; while ((nl = partial.indexOf("\n")) >= 0) { handleLine(partial.slice(0, nl)); partial = partial.slice(nl + 1); } } }
     );
     if (partial) handleLine(partial);
@@ -184,6 +234,12 @@ export async function explainPlan(plan, facts, cb = {}, { offline = false } = {}
 const KEYWORDS = [
   ["force-push", /\bforce\b/i],
   ["resolve", /conflict|<<<<<<<|resolve|merge (error|fail|problem)/i],
+  ["stash-list", /stash ?list|(my|the|all|see|show|list)( my)? stash(es)?\b|what (did i|have i) stash/i],
+  ["unstash", /\bpop\b|unstash|(bring|get|put) (back|it back)|restore (my )?stash|apply (my |the )?stash/i],
+  ["cherry-pick", /cherry|copy (a|that|one|this|the) commit|(just|only) (that|one|this) commit/i],
+  ["rebase", /rebase|squash|clean ?up|tidy|for (the )?review|reviewer|messy (branch|history|commits)|too many commits/i],
+  ["reset", /\breset\b|\bundo\b|uncommit|take back (my|the|a) commit|remove (my|the) (last )?commit/i],
+  ["stash", /\bstash|put (it|my work|this) aside|shelve/i],
   ["push", /\bpush|upload|send (my|it|the)|rejected|share my (work|code)/i],
   ["pull", /\bpull|update my|get (the )?(latest|new|their|her|his)|download|sync with/i],
   ["save", /\bcommit|save my|save (the|these) changes|snapshot/i],
@@ -196,9 +252,9 @@ export async function detectIntent(text) {
   try {
     const { text: out } = await chatStream([
       { role: "system", content: "Classify the user's git request. Reply with JSON only." },
-      { role: "user", content: `Request: "${text}"\nChoose one intent: status (wants to know what's going on), save (commit work), push (upload work), pull (get latest changes), resolve (fix a conflict), unknown.` },
+      { role: "user", content: `Request: "${text}"\nChoose one intent: status (wants to know what's going on), save (commit work), push (upload work), pull (get latest changes), resolve (fix a conflict), stash (put unfinished work aside), stash-list (see stashes), unstash (bring stashed work back), reset (undo commits), rebase (clean up branch for review), cherry-pick (copy one commit from another branch), unknown.` },
     ], {
-      format: { type: "object", properties: { intent: { type: "string", enum: ["status", "save", "push", "pull", "resolve", "unknown"] } }, required: ["intent"] },
+      format: { type: "object", properties: { intent: { type: "string", enum: ["status", "save", "push", "pull", "resolve", "stash", "stash-list", "unstash", "reset", "rebase", "cherry-pick", "unknown"] } }, required: ["intent"] },
       options: { temperature: 0, num_predict: 20 },
     });
     const intent = JSON.parse(out).intent;

@@ -74,6 +74,8 @@
   .explain p { margin:4px 0; } .explain .you { color:var(--green); } .explain .them { color:var(--blue); } .explain .note { color:var(--mute); }
   .choices { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
   .choices button.picked { background:var(--green); color:#fff; border-color:var(--green); }
+  .picks { display:grid; gap:8px; width:100%; }
+  .picks button { text-align:left; } .picks button span { display:block; font-size:13px; color:var(--mute); }
   .banner { text-align:center; font-size:22px; padding:22px; background:var(--green-bg); color:var(--green); border-radius:var(--radius); margin-bottom:16px; }
   .modal { position:fixed; inset:0; background:rgba(20,30,25,.35); display:none; place-items:center; z-index:10; }
   .modal.open { display:grid; }
@@ -111,6 +113,15 @@
       <button class="action" data-intent="push"><b>⬆️ Upload my work</b><span>Push to GitHub safely</span></button>
       <button class="action" data-intent="pull"><b>⬇️ Get latest</b><span>Pull your team's changes</span></button>
       <button class="action" data-intent="resolve"><b>🤝 Fix a conflict</b><span>Pick which version to keep</span></button>
+    </div>
+    <div class="muted" style="margin:4px 2px 8px">More git tools</div>
+    <div class="actions">
+      <button class="action" data-intent="stash"><b>📦 Stash my work</b><span>Put unfinished work aside</span></button>
+      <button class="action" data-intent="stash-list"><b>🗂️ My stashes</b><span>See what you put aside</span></button>
+      <button class="action" data-intent="unstash"><b>📤 Bring back stashed work</b><span>Pop a stash by number or name</span></button>
+      <button class="action" data-intent="reset"><b>↩️ Undo commits</b><span>Soft, mixed or hard reset</span></button>
+      <button class="action" data-intent="rebase"><b>🧹 Clean up for review</b><span>Rebase on main, squash</span></button>
+      <button class="action" data-intent="cherry-pick"><b>🍒 Copy a commit</b><span>Cherry-pick from a branch</span></button>
     </div>
     <div class="row">
       <input type="text" id="said" placeholder='Or just tell me what happened, e.g. "my push got rejected"'>
@@ -284,16 +295,29 @@ function render(ev) {
         conflictCard.buttons.forEach((b, n) => { b.disabled = false; b.onclick = () => { b.classList.add("picked"); answer(ev.id, String(n + 1)); }; });
         box = el("span"); questions.set(ev.id, box); conflictCard.buttons.at(-1).scrollIntoView({ behavior: "smooth", block: "center" }); break;
       }
+      if (m.kind === "pick") {
+        const typed = m.typed ? el("input", { type: "text", placeholder: m.byValue ? "or type the stash number or name" : "or type it" }) : null;
+        const sendTyped = () => typed.value.trim() && answer(ev.id, typed.value.trim());
+        typed?.addEventListener("keydown", e => { if (e.key === "Enter") sendTyped(); });
+        box = card("🤔 Your choice", el("b", {}, ev.prompt), m.note ? el("div", { class: "muted" }, m.note) : null,
+          el("div", { class: "picks", style: "margin-top:10px" }, m.options.map((o, n) =>
+            el("button", { onclick: () => answer(ev.id, m.byValue ? o.value : String(n + 1)) }, el("b", {}, o.label), o.hint ? el("span", {}, o.hint) : null))),
+          el("div", { class: "ask" }, typed, typed ? el("button", { onclick: sendTyped }, "OK") : null, stopBtn(ev.id)));
+        box._pick = v => (m.options.find((o, n) => (m.byValue ? o.value : String(n + 1)) === String(v)) || m.options.find(o => o.value === v || (o.aliases || []).includes(v)) || { label: v }).label;
+        questions.set(ev.id, box); break;
+      }
       const li = plan?.steps[m.index];
       const label = ev.prompt.replace(/\(commit message\):?/i, "").replace(/:$/, "").trim();
-      const inp = el("input", { type: "text", placeholder: m.name === "message" ? "e.g. Add login screen" : "" });
+      const inp = el("input", { type: "text", placeholder: m.name === "message" ? "e.g. Add login screen" : m.name === "stashName" ? "e.g. login-form-wip" : "" });
       const send = () => answer(ev.id, inp.value);
       inp.addEventListener("keydown", e => { if (e.key === "Enter") send(); });
       box = el("div", { class: "ask" }, el("div", { style: "width:100%" }, el("b", {}, label)), inp, el("button", { class: "primary", onclick: send }, "OK"), stopBtn(ev.id));
       (li?.querySelector(".slot") || tl).append(box); setTimeout(() => inp.focus(), 50);
       questions.set(ev.id, box); break;
     }
-    case "answered": { const q = questions.get(ev.id); q?.remove(); questions.delete(ev.id);
+    case "answered": { const q = questions.get(ev.id); questions.delete(ev.id);
+      if (q?._pick) { if (ev.value === null || ev.value === undefined) q.remove(); else q.replaceChildren(el("div", { class: "msg ok", style: "margin:0" }, "✓ You picked: " + q._pick(ev.value))); }
+      else q?.remove();
       conflictCard?.buttons.forEach(b => b.disabled = true); break; }
     case "running": {
       const li = plan?.steps[ev.index]; runningStep = li;
