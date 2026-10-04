@@ -245,8 +245,8 @@ function render(ev) {
         return li;
       });
       const summary = el("div", { class: "bubble", style: "display:none" });
-      const c = card(ev.steps.length ? "🗺️ The plan" : "✨ All good", summary, ev.steps.length ? el("ol", { class: "steps" }, steps) : null);
-      plan = { card: c, steps, summary }; break;
+      const c = card(ev.steps.length ? "🗺️ The plan" : ev.hint ? "📋 Summary" : "✨ All good", summary, ev.steps.length ? el("ol", { class: "steps" }, steps) : null);
+      plan = { card: c, steps, summary, hint: ev.hint }; break;
     }
     case "thinking": stopThinking(); thinkingEl = el("div", { class: "thinking" }, el("span", { class: "spin" }), ev.text);
       (conflictCard?.explain && !conflictCard.done ? conflictCard.explain : plan?.summary)?.before(thinkingEl); break;
@@ -331,7 +331,7 @@ function render(ev) {
         ...ev.picked.map(t => el("pre", { style: "background:#f4f6f5;padding:10px;border-radius:8px;margin-top:6px" }, t || "(empty)")))); break;
     case "end":
       setBusy(false); stopThinking();
-      if (ev.ok && plan && !plan.steps.length) tl.append(el("div", { class: "banner" }, "✓ Nothing to do. You're all set!"));
+      if (ev.ok && plan && !plan.steps.length) tl.append(plan.hint ? el("div", { class: "msg warn", style: "font-size:17px;padding:16px" }, "👉 " + plan.hint) : el("div", { class: "banner" }, "✓ Nothing to do. You're all set!"));
       tl.append(el("div", { class: "row", style: "justify-content:center;margin-top:8px" },
         el("button", { onclick: () => start("status") }, "📍 Check again"))); break;
   }

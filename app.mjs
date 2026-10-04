@@ -12,7 +12,7 @@ import { homedir, platform } from "node:os";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { run } from "./runner.mjs";
-import { toFacts } from "./collector.mjs";
+import { toFacts, nextHint } from "./collector.mjs";
 import { INTENTS } from "./rules.mjs";
 import { CHOICES } from "./conflicts.mjs";
 import { MODEL, isAvailable, warmup, explainPlan, detectIntent, explainConflict } from "./gemma.mjs";
@@ -68,7 +68,7 @@ const ui = {
 };
 
 async function explain(p, st) {
-  emit({ type: "plan", situation: p.situation, steps: p.steps.map(s => ({ display: s.display, risk: s.risk, manual: !!s.manual })) });
+  emit({ type: "plan", situation: p.situation, hint: p.steps.length ? null : nextHint(st), steps: p.steps.map(s => ({ display: s.display, risk: s.risk, manual: !!s.manual })) });
   if (aiOn()) emit({ type: "thinking", text: `Ask Iche is thinking… (${MODEL}, on your laptop)` });
   const r = await explainPlan(p, toFacts(st), {
     onSummary: text => emit({ type: "summary", text }),

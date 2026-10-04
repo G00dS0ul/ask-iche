@@ -8,7 +8,7 @@ import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
 import { existsSync } from "node:fs";
 import { run } from "./runner.mjs";
-import { toFacts } from "./collector.mjs";
+import { toFacts, nextHint } from "./collector.mjs";
 import { INTENTS } from "./rules.mjs";
 import { MODEL, isAvailable, warmup, explainPlan, detectIntent, explainConflict } from "./gemma.mjs";
 import { CHOICES } from "./conflicts.mjs";
@@ -123,7 +123,8 @@ const ui = {
 
 async function explain(p, st) {
   const facts = toFacts(st);
-  if (!p.steps.length && !(ai.up && ai.hasModel)) { console.log(c.green("\nNothing to do. You're all set ✓\n")); return; }
+  const done = () => { const h = nextHint(st); console.log(h ? c.yellow("\n👉 " + h.replace(/"(Save my work|Upload my work|Get latest|Fix a conflict)"/g, (_, l) => `"ask-iche ${({ "Save my work": "save", "Upload my work": "push", "Get latest": "pull", "Fix a conflict": "resolve" })[l]}"`)) : c.green("\nNothing to do. You're all set ✓")); };
+  if (!p.steps.length && !(ai.up && ai.hasModel)) { done(); console.log(); return; }
   if (ai.up && ai.hasModel) process.stdout.write(c.dim(`\n  Ask Iche is thinking… (${MODEL}, on your laptop)`));
   let cleared = false;
   const clear = () => { if (!cleared && ai.up && ai.hasModel) { process.stdout.write("\r\x1b[K"); cleared = true; } };
@@ -133,7 +134,7 @@ async function explain(p, st) {
     onTip: t => { clear(); console.log(c.cyan("\n💡 " + t)); },
   }, { offline: !(ai.up && ai.hasModel) });
   if (r.stats && flags.has("--stats")) console.log(c.dim(`   [${MODEL}: first words ${(r.stats.firstTokenMs / 1000).toFixed(1)}s, total ${(r.stats.totalMs / 1000).toFixed(1)}s${r.fellBack ? `, filled ${r.fellBack} from built-in` : ""}]`));
-  if (!p.steps.length) console.log(c.green("\nNothing to do. You're all set ✓"));
+  if (!p.steps.length) done();
   console.log();
 }
 

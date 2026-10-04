@@ -236,3 +236,15 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   console.log(JSON.stringify(state, null, 2));
   console.log("\nFACTS:\n- " + toFacts(state).join("\n- "));
 }
+
+/** For "Where am I?": a friendly next step when there's still work to do, or null if all clean. */
+export function nextHint(st) {
+  if (!st || !st.ok || !st.isRepo) return null;
+  if (st.conflicts?.length || st.operation) return "You're in the middle of fixing a conflict. Choose \"Fix a conflict\" to finish it.";
+  const dirty = st.staged.length + st.unstaged.length + st.untracked.length;
+  if (dirty && st.behind) return "You have unsaved work and new changes on the remote. Choose \"Upload my work\" and Ask Iche will save, pull, and push safely.";
+  if (dirty) return "You have unsaved work. Choose \"Save my work\" to commit it, or \"Upload my work\" to commit and push.";
+  if (st.ahead) return `You have ${st.ahead} commit${st.ahead > 1 ? "s" : ""} that ${st.ahead > 1 ? "aren't" : "isn't"} on the remote yet. Choose "Upload my work" to push.`;
+  if (st.behind) return "Your team has new changes. Choose \"Get latest\" to pull them.";
+  return null;
+}
