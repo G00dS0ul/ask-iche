@@ -4,7 +4,7 @@
   "description": "A local AI git buddy for beginners. The code plans, Gemma explains, and nothing runs without your OK.",
   "type": "module",
   "bin": { "ask-iche": "./ask-iche.mjs" },
-  "scripts": { "start": "node ask-iche.mjs" },
+  "scripts": { "start": "node app.mjs", "cli": "node ask-iche.mjs" },
   "engines": { "node": ">=18" },
   "keywords": ["git", "beginner", "gemma", "ollama", "local-ai", "cli"],
   "license": "MIT"

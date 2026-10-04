@@ -62,7 +62,24 @@ It previews the result, backs up the old file to `.git/ask-iche-backup/`, and th
    ```
 No `npm install` needed. There are no dependencies.
 
-## Usage
+## Usage: the friendly app (recommended)
+
+```bash
+node app.mjs
+```
+
+Your browser opens **Ask Iche** at `http://127.0.0.1:4321`:
+
+1. **Pick your project folder** with 📁 Browse (no typing paths).
+2. **Click what you want:** Where am I? · Save my work · Upload my work · Get latest · Fix a conflict. Or type what happened, e.g. *"my push got rejected"*.
+3. **Read the plan.** Gemma explains each step, and you click **▶ Run this step** one at a time.
+4. **Conflicts** show up as two cards, *Yours* and *Theirs*, with buttons: Keep mine / Keep theirs / Keep both.
+
+It runs 100% on your laptop. The server only listens on `127.0.0.1`, and every request needs a secret token that's created fresh each time, so other websites can't talk to it.
+
+Options: `node app.mjs --no-ai` (built-in explanations) · `--no-open` (don't open the browser) · `PORT=4322 node app.mjs`. Add `?stats` to the URL to see Gemma timings.
+
+## Usage: the terminal (CLI)
 
 ```bash
 node ask-iche.mjs status   [repo-path]       # where am I?
@@ -110,6 +127,7 @@ Your message ─┐
 | `conflicts.mjs` | Side-by-side conflict helper (no markers) |
 | `gemma.mjs` | Ollama client: streaming explanations + intent detection |
 | `ask-iche.mjs` | The CLI |
+| `app.mjs` + `app.html` | The friendly app: a local web UI on the same engine |
 
 ## Why local and open
 
@@ -119,7 +137,7 @@ Your message ─┐
 
 ## Roadmap
 
-- [ ] A friendly desktop/web UI instead of the terminal
+- [x] A friendly web UI instead of the terminal (`node app.mjs`)
 - [ ] Undo help (safely reverting a commit)
 - [ ] Learn mode: a tiny quiz after each action
 

@@ -12,7 +12,7 @@ import { readConflict, build, pick, save, CHOICES } from "./conflicts.mjs";
 const MAX_ROUNDS = 6;
 
 // Run git, show its output live, and capture it for error explanations.
-function runGit(args, cwd) {
+function runGit(args, cwd, onOutput) {
   return new Promise(resolve => {
     const child = spawn("git", args, {
       cwd,
@@ -23,8 +23,8 @@ function runGit(args, cwd) {
         GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "core.safecrlf", GIT_CONFIG_VALUE_0: "false" }, // never open vim on her
     });
     let out = "";
-    child.stdout.on("data", d => { out += d; process.stdout.write(d); });
-    child.stderr.on("data", d => { out += d; process.stderr.write(d); });
+    child.stdout.on("data", d => { out += d; onOutput ? onOutput(String(d)) : process.stdout.write(d); });
+    child.stderr.on("data", d => { out += d; onOutput ? onOutput(String(d)) : process.stderr.write(d); });
     child.on("error", e => resolve({ code: -1, out: String(e.message) }));
     child.on("close", code => resolve({ code, out }));
   });
@@ -105,7 +105,7 @@ export async function run({ cwd, intent, ui, explain, fetch = true, onEvent = ()
           ui.say(`Okay, fix ${manual.join(", ")} in your editor. Look for the lines between <<<<<<< and >>>>>>>, keep what you want, and delete the marker lines.`, "info");
         }
         for (;;) {
-          const go = await ui.confirm(`Step ${i + 1}: ${s.display}\n   Done fixing? `, false);
+          const go = await ui.confirm(`Step ${i + 1}: ${s.display}\n   Done fixing? `, false, { kind: "manual", index: i, files });
           if (!go) { ui.say("No problem. Nothing else was changed. Run Ask Iche again when you're ready.", "info"); return { ok: false, stopped: true }; }
           const left = hasMarkers(state.repoRoot, files);
           if (!left.length) break;
@@ -117,7 +117,7 @@ export async function run({ cwd, intent, ui, explain, fetch = true, onEvent = ()
       // Fill {placeholders}
       if (s.input && values[s.input.name] === undefined) {
         for (let tries = 1; ; tries++) {
-          const v = (await ui.ask(s.input.prompt)) ?? "";
+          const v = (await ui.ask(s.input.prompt, { kind: "input", name: s.input.name, index: i })) ?? "";
           const err = validateInput(s.input.name, v);
           if (!err) { values[s.input.name] = v.trim(); break; }
           ui.say(err, "warn");
@@ -134,11 +134,13 @@ export async function run({ cwd, intent, ui, explain, fetch = true, onEvent = ()
 
       const strict = risk === "careful" || risk === "dangerous";
       const label = `Step ${i + 1}: ${show(args)}${s.note ? `  (${s.note})` : ""}`;
-      const yes = risk === "safe" ? true : await ui.confirm(strict ? `${label}\n   ${g.reason || s.note || "Be careful with this one."}\n   Type "yes" to run: ` : `${label}\n   Run it? `, strict);
+      const yes = risk === "safe" ? true : await ui.confirm(strict ? `${label}\n   ${g.reason || s.note || "Be careful with this one."}\n   Type "yes" to run: ` : `${label}\n   Run it? `, strict,
+        { kind: "step", index: i, cmd: show(args), risk, strict, note: s.note, warning: strict ? (g.reason || s.note || "Be careful with this one.") : null });
       if (!yes) { ui.say("Okay, stopped. Nothing else was changed.", "info"); return { ok: false, stopped: true }; }
 
       const t0 = Date.now();
-      const r = await runGit(args, cwd);
+      ui.running?.({ index: i, cmd: show(args) });
+      const r = await runGit(args, cwd, ui.output);
       onEvent({ type: "exec", cmd: args.join(" "), code: r.code, ms: Date.now() - t0 });
       if (r.code !== 0) {
         const friendly = explainError(r.out);
@@ -178,7 +180,7 @@ async function guideFile(repoRoot, file, labels, ui, onEvent) {
   for (const [k, c] of r.conflicts.entries()) {
     await ui.showConflict({ file, conflict: c, index: k, total: r.conflicts.length, labels });
     for (let tries = 1; ; tries++) {
-      const a = ((await ui.ask(`Your choice (1-${keys.length + 1}):`)) ?? "").trim();
+      const a = ((await ui.ask(`Your choice (1-${keys.length + 1}):`, { kind: "choice", file, index: k })) ?? "").trim();
       const n = Number(a);
       if (n >= 1 && n <= keys.length) { choices.push(keys[n - 1]); onEvent({ type: "conflict-choice", file, choice: keys[n - 1] }); break; }
       if (n === keys.length + 1) return "manual";
@@ -187,7 +189,7 @@ async function guideFile(repoRoot, file, labels, ui, onEvent) {
     }
   }
   await ui.showResolved?.({ file, conflicts: r.conflicts, picked: r.conflicts.map((c, k) => pick(c, choices[k])), choices });
-  if (!(await ui.confirm(`Save ${file} like this? `, false))) return "stop";
+  if (!(await ui.confirm(`Save ${file} like this? `, false, { kind: "save", file }))) return "stop";
   const backup = save(repoRoot, file, build(r.pieces, choices));
   ui.say(`✓ Saved ${file}. (Your old copy is backed up in ${relative(repoRoot, backup).replace(/\\/g, "/")})`, "ok");
   if (choices.some(c => c.startsWith("both")) && /\.(js|mjs|ts|dart|json|cs|py|java|kt|go)$/.test(file))

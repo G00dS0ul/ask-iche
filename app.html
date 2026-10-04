@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ask Iche 🌿</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌿</text></svg>">
+<style>
+  :root { --bg:#f6f8f5; --card:#fff; --ink:#1f2a24; --mute:#6b7a71; --line:#e3e9e4; --green:#2f8f5b; --green-bg:#e9f6ee;
+          --blue:#2f6fb3; --blue-bg:#eaf2fb; --amber:#a86a00; --amber-bg:#fff5e0; --red:#b3261e; --red-bg:#fdecea; --radius:14px; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; background:var(--bg); color:var(--ink); }
+  header { display:flex; align-items:center; gap:12px; padding:18px 28px; background:#fff; border-bottom:1px solid var(--line); position:sticky; top:0; z-index:5; }
+  header h1 { font-size:20px; margin:0; }
+  header .sub { color:var(--mute); font-size:14px; }
+  .pill { margin-left:auto; font-size:13px; padding:6px 12px; border-radius:999px; background:var(--green-bg); color:var(--green); cursor:pointer; border:0; }
+  .pill.off { background:#eee; color:#666; }
+  main { max-width:880px; margin:0 auto; padding:24px 20px 80px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:var(--radius); padding:18px 20px; margin-bottom:16px; box-shadow:0 1px 2px rgba(0,0,0,.03); }
+  .card h2 { font-size:15px; margin:0 0 12px; color:var(--mute); font-weight:600; text-transform:uppercase; letter-spacing:.04em; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  input[type=text] { flex:1; min-width:220px; font:inherit; padding:10px 14px; border:1px solid var(--line); border-radius:10px; background:#fbfcfb; }
+  input[type=text]:focus { outline:2px solid #bfe3cd; border-color:var(--green); }
+  button { font:inherit; border:1px solid var(--line); background:#fff; padding:9px 16px; border-radius:10px; cursor:pointer; }
+  button:hover:not(:disabled) { border-color:#b9c7be; background:#fafcfb; }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  button.primary { background:var(--green); color:#fff; border-color:var(--green); }
+  button.primary:hover:not(:disabled) { background:#277a4d; }
+  button.danger { background:var(--red); color:#fff; border-color:var(--red); }
+  button.ghost { border-color:transparent; color:var(--mute); }
+  .chips { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+  .chip { font-size:13px; padding:4px 10px; border-radius:999px; background:#f0f3f1; border:1px solid var(--line); cursor:pointer; }
+  .actions { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin-bottom:12px; }
+  .action { text-align:left; padding:12px 14px; }
+  .action b { display:block; } .action span { font-size:13px; color:var(--mute); }
+  .facts { list-style:none; padding:0; margin:0; }
+  .facts li { padding:4px 0 4px 26px; position:relative; }
+  .facts li::before { content:"•"; position:absolute; left:10px; color:var(--mute); }
+  .warn { background:var(--amber-bg); color:var(--amber); padding:10px 14px; border-radius:10px; margin-top:10px; }
+  .msg { padding:10px 14px; border-radius:10px; margin:0 0 12px; }
+  .msg.ok { background:var(--green-bg); color:var(--green); } .msg.warn { background:var(--amber-bg); color:var(--amber); }
+  .msg.error { background:var(--red-bg); color:var(--red); } .msg.info { background:#f0f3f1; color:var(--mute); }
+  .bubble { background:#f3effa; border-radius:12px; padding:12px 14px; margin-bottom:12px; }
+  .bubble::before { content:"💬 "; }
+  .tip { background:var(--blue-bg); color:var(--blue); border-radius:10px; padding:10px 14px; margin-top:12px; }
+  .tip::before { content:"💡 "; }
+  .steps { list-style:none; padding:0; margin:0; counter-reset:s; }
+  .step { border:1px solid var(--line); border-radius:12px; padding:12px 14px 12px 52px; margin-bottom:10px; position:relative; transition:.2s; }
+  .step::before { counter-increment:s; content:counter(s); position:absolute; left:14px; top:12px; width:26px; height:26px; border-radius:50%; background:#eef2ef; display:grid; place-items:center; font-size:13px; font-weight:600; }
+  .step.active { border-color:var(--green); box-shadow:0 0 0 3px #e3f3e9; }
+  .step.done::before { content:"✓"; background:var(--green); color:#fff; }
+  .step.failed::before { content:"!"; background:var(--amber); color:#fff; }
+  .cmd { font-family:ui-monospace,Consolas,monospace; font-size:14px; background:#f4f6f5; padding:2px 8px; border-radius:6px; }
+  .why { color:var(--mute); font-size:14px; margin-top:4px; min-height:1.2em; }
+  .badge { font-size:11px; padding:2px 8px; border-radius:999px; margin-left:6px; vertical-align:middle; }
+  .b-safe { background:var(--green-bg); color:var(--green); } .b-normal { background:#eef2ef; color:var(--mute); }
+  .b-careful { background:var(--amber-bg); color:var(--amber); } .b-dangerous { background:var(--red-bg); color:var(--red); }
+  .ask { margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .ask .hint { width:100%; font-size:14px; color:var(--amber); }
+  details { margin-top:8px; font-size:13px; color:var(--mute); }
+  pre { margin:0; font:13px/1.45 ui-monospace,Consolas,monospace; white-space:pre-wrap; word-break:break-word; }
+  details pre { background:#1f2a24; color:#dfe9e2; padding:10px; border-radius:8px; margin-top:6px; max-height:220px; overflow:auto; }
+  .skeleton { display:inline-block; height:10px; width:60%; border-radius:6px; background:linear-gradient(90deg,#eef2ef,#f7f9f8,#eef2ef); background-size:200% 100%; animation:sh 1.2s infinite; }
+  @keyframes sh { to { background-position:-200% 0; } }
+  .thinking { color:var(--mute); font-size:14px; display:flex; align-items:center; gap:8px; margin:6px 0 12px; }
+  .spin { width:14px; height:14px; border:2px solid #cfe0d5; border-top-color:var(--green); border-radius:50%; animation:sp .8s linear infinite; display:inline-block; }
+  @keyframes sp { to { transform:rotate(360deg); } }
+  .versions { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin:12px 0; }
+  .ver { border-radius:12px; padding:10px 12px; border:1px solid var(--line); }
+  .ver h3 { margin:0 0 6px; font-size:14px; }
+  .ver.mine { background:var(--green-bg); border-color:#cbe8d6; } .ver.mine h3 { color:var(--green); }
+  .ver.theirs { background:var(--blue-bg); border-color:#cfe0f3; } .ver.theirs h3 { color:var(--blue); }
+  .ver.base { grid-column:1/-1; background:#f7f8f7; color:var(--mute); }
+  .explain p { margin:4px 0; } .explain .you { color:var(--green); } .explain .them { color:var(--blue); } .explain .note { color:var(--mute); }
+  .choices { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+  .choices button.picked { background:var(--green); color:#fff; border-color:var(--green); }
+  .banner { text-align:center; font-size:22px; padding:22px; background:var(--green-bg); color:var(--green); border-radius:var(--radius); margin-bottom:16px; }
+  .modal { position:fixed; inset:0; background:rgba(20,30,25,.35); display:none; place-items:center; z-index:10; }
+  .modal.open { display:grid; }
+  .modal .box { background:#fff; width:min(620px,92vw); max-height:80vh; border-radius:var(--radius); padding:18px; display:flex; flex-direction:column; }
+  .dirlist { overflow:auto; border:1px solid var(--line); border-radius:10px; margin:10px 0; flex:1; min-height:200px; }
+  .dir { padding:9px 14px; cursor:pointer; border-bottom:1px solid #f0f3f1; display:flex; justify-content:space-between; }
+  .dir:hover { background:#f6f9f7; }
+  .dir .git { font-size:12px; color:var(--green); }
+  .muted { color:var(--mute); font-size:14px; }
+  @media (max-width:640px) { .versions { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <div style="font-size:28px">🌿</div>
+  <div><h1>Ask Iche</h1><div class="sub">Your friendly git buddy. Nothing runs until you say so.</div></div>
+  <button class="pill" id="aiPill" title="Turn the AI explanations on or off">…</button>
+</header>
+
+<main>
+  <section class="card">
+    <h2>1. Your project</h2>
+    <div class="row">
+      <input type="text" id="repo" placeholder="Pick your project folder…" spellcheck="false">
+      <button id="browse">📁 Browse…</button>
+    </div>
+    <div class="chips" id="recent"></div>
+  </section>
+
+  <section class="card">
+    <h2>2. What do you want to do?</h2>
+    <div class="actions">
+      <button class="action" data-intent="status"><b>📍 Where am I?</b><span>See what's going on</span></button>
+      <button class="action" data-intent="save"><b>💾 Save my work</b><span>Commit your changes</span></button>
+      <button class="action" data-intent="push"><b>⬆️ Upload my work</b><span>Push to GitHub safely</span></button>
+      <button class="action" data-intent="pull"><b>⬇️ Get latest</b><span>Pull your team's changes</span></button>
+      <button class="action" data-intent="resolve"><b>🤝 Fix a conflict</b><span>Pick which version to keep</span></button>
+    </div>
+    <div class="row">
+      <input type="text" id="said" placeholder='Or just tell me what happened, e.g. "my push got rejected"'>
+      <button class="primary" id="askBtn">Ask</button>
+    </div>
+    <div id="intentAsk"></div>
+  </section>
+
+  <section id="timeline"></section>
+</main>
+
+<div class="modal" id="modal">
+  <div class="box">
+    <b>Pick your project folder</b>
+    <div class="muted" id="curDir"></div>
+    <div class="dirlist" id="dirlist"></div>
+    <div class="row">
+      <button id="upDir">⬆ Up</button>
+      <span class="muted" style="flex:1">Folders marked <span style="color:var(--green)">● git project</span> are ready to use.</span>
+      <button class="ghost" id="closeModal">Cancel</button>
+      <button class="primary" id="pickDir">Use this folder</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const TOKEN = "__TOKEN__";
+const $ = s => document.querySelector(s);
+const api = (path, data) => fetch("/api/" + path, data === undefined
+  ? { headers: { "x-token": TOKEN } }
+  : { method: "POST", headers: { "x-token": TOKEN, "Content-Type": "application/json" }, body: JSON.stringify(data) }).then(r => r.json());
+function el(tag, props = {}, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(props)) {
+    if (k === "class") e.className = v; else if (k.startsWith("on")) e.addEventListener(k.slice(2), v); else if (v !== undefined && v !== null) e.setAttribute(k, v);
+  }
+  for (const k of kids.flat()) if (k !== null && k !== undefined && k !== false) e.append(k instanceof Node ? k : document.createTextNode(String(k)));
+  return e;
+}
+const tl = $("#timeline");
+const RISK = { safe: "safe", normal: "needs your OK", careful: "careful", dangerous: "danger" };
+let busy = false, plan = null, conflictCard = null, thinkingEl = null, runningStep = null;
+const showStats = new URLSearchParams(location.search).has("stats");
+
+// ---------- project folder ----------
+const recent = () => JSON.parse(localStorage.getItem("recent") || "[]");
+function setRepo(p, go = true) {
+  $("#repo").value = p;
+  localStorage.setItem("recent", JSON.stringify([p, ...recent().filter(x => x !== p)].slice(0, 5)));
+  drawRecent();
+  if (go && !busy) start("status");
+}
+function drawRecent() {
+  const box = $("#recent"); box.replaceChildren();
+  for (const p of recent()) box.append(el("span", { class: "chip", title: p, onclick: () => setRepo(p) }, "📂 " + p.split(/[\\/]/).filter(Boolean).pop()));
+}
+let cur = null;
+async function openDir(p) {
+  const d = await api("dirs?path=" + encodeURIComponent(p || ""));
+  cur = d; $("#curDir").textContent = d.path + (d.isRepo ? "  ● git project" : "");
+  const list = $("#dirlist"); list.replaceChildren();
+  if (d.error) list.append(el("div", { class: "dir" }, d.error));
+  for (const x of d.dirs) list.append(el("div", { class: "dir", ondblclick: () => x.isRepo ? (closeModal(), setRepo(x.path)) : openDir(x.path), onclick: () => openDir(x.path) },
+    el("span", {}, "📁 " + x.name), x.isRepo ? el("span", { class: "git" }, "● git project") : ""));
+  if (!d.dirs.length && !d.error) list.append(el("div", { class: "dir muted" }, "No folders here."));
+}
+const closeModal = () => $("#modal").classList.remove("open");
+$("#browse").onclick = () => { $("#modal").classList.add("open"); openDir($("#repo").value || ""); };
+$("#upDir").onclick = () => cur?.parent && openDir(cur.parent);
+$("#closeModal").onclick = closeModal;
+$("#pickDir").onclick = () => { if (cur) { closeModal(); setRepo(cur.path); } };
+$("#repo").addEventListener("keydown", e => { if (e.key === "Enter" && $("#repo").value.trim()) setRepo($("#repo").value.trim()); });
+
+// ---------- AI pill ----------
+async function drawAI(info) {
+  info = info || await api("info");
+  const p = $("#aiPill");
+  if (!info.useAI) { p.className = "pill off"; p.textContent = "AI off · built-in help"; }
+  else if (info.aiUp && info.hasModel) { p.className = "pill"; p.textContent = "✓ Gemma on your laptop"; }
+  else { p.className = "pill off"; p.textContent = info.aiUp ? "Model missing · built-in help" : "Ollama not running · built-in help"; }
+  p.dataset.on = info.useAI ? "1" : "";
+}
+$("#aiPill").onclick = async () => drawAI({ ...(await api("ai", { on: !$("#aiPill").dataset.on })) });
+
+// ---------- start a run ----------
+function setBusy(b) { busy = b; document.querySelectorAll(".action,#askBtn").forEach(x => x.disabled = b); }
+async function start(intent) {
+  const path = $("#repo").value.trim();
+  if (!path) { $("#browse").click(); return; }
+  $("#intentAsk").replaceChildren();
+  const r = await api("run", { path, intent });
+  if (r.error) tl.prepend(el("div", { class: "msg error" }, r.error));
+}
+document.querySelectorAll(".action").forEach(b => b.onclick = () => start(b.dataset.intent));
+async function askText() {
+  const text = $("#said").value.trim(); if (!text) return;
+  const box = $("#intentAsk"); box.replaceChildren(el("div", { class: "thinking" }, el("span", { class: "spin" }), "Understanding what you mean…"));
+  const r = await api("intent", { text });
+  if (r.refused) return box.replaceChildren(el("div", { class: "msg warn" }, r.refused));
+  if (!r.intent) return box.replaceChildren(el("div", { class: "msg warn" }, `I'm not sure what you want to do with "${text}". Nothing was changed. Try one of the buttons above.`));
+  if (r.direct) return start(r.intent);
+  box.replaceChildren(el("div", { class: "msg info" }, "Sounds like you want to ", el("b", {}, r.words), ". Right?  ",
+    el("button", { class: "primary", onclick: () => start(r.intent) }, "Yes"), " ",
+    el("button", { onclick: () => box.replaceChildren() }, "No")));
+}
+$("#askBtn").onclick = askText;
+$("#said").addEventListener("keydown", e => { if (e.key === "Enter") askText(); });
+
+// ---------- answering questions ----------
+const answer = (id, value) => api("answer", { id, value });
+const stopBtn = id => el("button", { class: "ghost", onclick: () => answer(id, null) }, "Stop");
+
+// ---------- render events ----------
+function stopThinking() { thinkingEl?.remove(); thinkingEl = null; }
+function card(title, ...kids) { const c = el("div", { class: "card" }, title ? el("h2", {}, title) : null, ...kids); tl.append(c); c.scrollIntoView({ behavior: "smooth", block: "nearest" }); return c; }
+const questions = new Map(); // id -> element to remove when answered
+
+function render(ev) {
+  switch (ev.type) {
+    case "start":
+      tl.replaceChildren(); plan = null; conflictCard = null; setBusy(true);
+      tl.append(el("div", { class: "muted", style: "margin:4px 4px 12px" }, `You asked to ${ev.words} in ${ev.path}`)); break;
+    case "show":
+      card(ev.round === 1 ? "📍 Here's where you are" : "🔄 Checking again…",
+        el("ul", { class: "facts" }, ev.facts.map(f => el("li", {}, f))), ev.warnings.map(w => el("div", { class: "warn" }, "⚠️ " + w))); break;
+    case "plan": {
+      const steps = ev.steps.map(s => {
+        const li = el("li", { class: "step" },
+          s.manual ? el("b", {}, s.display) : el("span", { class: "cmd" }, s.display),
+          el("span", { class: "badge b-" + s.risk }, RISK[s.risk] || s.risk),
+          el("div", { class: "why" }, el("span", { class: "skeleton" })), el("div", { class: "slot" }));
+        return li;
+      });
+      const summary = el("div", { class: "bubble", style: "display:none" });
+      const c = card(ev.steps.length ? "🗺️ The plan" : "✨ All good", summary, ev.steps.length ? el("ol", { class: "steps" }, steps) : null);
+      plan = { card: c, steps, summary }; break;
+    }
+    case "thinking": stopThinking(); thinkingEl = el("div", { class: "thinking" }, el("span", { class: "spin" }), ev.text);
+      (conflictCard?.explain && !conflictCard.done ? conflictCard.explain : plan?.summary)?.before(thinkingEl); break;
+    case "thinking-done": stopThinking();
+      const wasConflict = conflictCard && !conflictCard.done;
+      if (wasConflict) conflictCard.done = true;
+      if (showStats && ev.stats && wasConflict) { conflictCard.explain.append(el("div", { class: "muted" }, `[first words ${(ev.stats.firstTokenMs / 1000).toFixed(1)}s, total ${(ev.stats.totalMs / 1000).toFixed(1)}s]`)); break; }
+      if (showStats && ev.stats) (plan?.card || tl).append(el("div", { class: "muted" }, `[first words ${(ev.stats.firstTokenMs / 1000).toFixed(1)}s, total ${(ev.stats.totalMs / 1000).toFixed(1)}s${ev.fellBack ? ", filled " + ev.fellBack + " from built-in" : ""}]`));
+      break;
+    case "summary": if (plan) { plan.summary.style.display = ""; plan.summary.textContent = ev.text; } break;
+    case "reason": if (plan?.steps[ev.index]) plan.steps[ev.index].querySelector(".why").textContent = ev.text; break;
+    case "tip": plan?.card.append(el("div", { class: "tip" }, ev.text)); break;
+    case "confirm": {
+      const m = ev.meta || {}; let box;
+      if (m.kind === "step" || m.kind === "manual") {
+        const li = plan?.steps[m.index]; li?.classList.add("active");
+        if (m.kind === "manual") box = el("div", { class: "ask" }, el("button", { class: "primary", onclick: () => answer(ev.id, true) }, "I've fixed it"), stopBtn(ev.id));
+        else if (ev.strict) {
+          const inp = el("input", { type: "text", placeholder: 'Type "yes" to run it' });
+          box = el("div", { class: "ask" }, el("div", { class: "hint" }, "⚠️ " + (m.warning || "Be careful with this one.")), inp,
+            el("button", { class: "danger", onclick: () => answer(ev.id, inp.value) }, "Run"), stopBtn(ev.id));
+        } else box = el("div", { class: "ask" }, el("button", { class: "primary", onclick: () => answer(ev.id, true) }, "▶ Run this step"), stopBtn(ev.id));
+        (li?.querySelector(".slot") || tl).append(box); li?.scrollIntoView({ behavior: "smooth", block: "center" });
+      } else if (m.kind === "save") {
+        box = el("div", { class: "ask" }, el("button", { class: "primary", onclick: () => answer(ev.id, true) }, `💾 Save ${m.file}`), stopBtn(ev.id));
+        (conflictCard?.card || tl).append(box);
+      } else {
+        box = el("div", { class: "ask" }, ev.prompt, el("button", { class: "primary", onclick: () => answer(ev.id, true) }, "Yes"), stopBtn(ev.id)); tl.append(box);
+      }
+      questions.set(ev.id, box); break;
+    }
+    case "ask": {
+      const m = ev.meta || {}; let box;
+      if (m.kind === "choice" && conflictCard) {
+        conflictCard.buttons.forEach((b, n) => { b.disabled = false; b.onclick = () => { b.classList.add("picked"); answer(ev.id, String(n + 1)); }; });
+        box = el("span"); questions.set(ev.id, box); conflictCard.buttons.at(-1).scrollIntoView({ behavior: "smooth", block: "center" }); break;
+      }
+      const li = plan?.steps[m.index];
+      const label = ev.prompt.replace(/\(commit message\):?/i, "").replace(/:$/, "").trim();
+      const inp = el("input", { type: "text", placeholder: m.name === "message" ? "e.g. Add login screen" : "" });
+      const send = () => answer(ev.id, inp.value);
+      inp.addEventListener("keydown", e => { if (e.key === "Enter") send(); });
+      box = el("div", { class: "ask" }, el("div", { style: "width:100%" }, el("b", {}, label)), inp, el("button", { class: "primary", onclick: send }, "OK"), stopBtn(ev.id));
+      (li?.querySelector(".slot") || tl).append(box); setTimeout(() => inp.focus(), 50);
+      questions.set(ev.id, box); break;
+    }
+    case "answered": { const q = questions.get(ev.id); q?.remove(); questions.delete(ev.id);
+      conflictCard?.buttons.forEach(b => b.disabled = true); break; }
+    case "running": {
+      const li = plan?.steps[ev.index]; runningStep = li;
+      if (li) { li.classList.add("active"); const c = li.querySelector(".cmd"); if (c) c.textContent = ev.cmd; li.querySelector(".slot").append(el("div", { class: "thinking run" }, el("span", { class: "spin" }), "Running…"),
+        el("details", {}, el("summary", {}, "Show git output"), el("pre", {}))); }
+      break;
+    }
+    case "output": runningStep?.querySelector("details pre")?.append(ev.text); break;
+    case "say": {
+      if (ev.text === "✓ done" && runningStep) { runningStep.classList.remove("active"); runningStep.classList.add("done"); runningStep.querySelector(".run")?.remove(); runningStep = null; break; }
+      if (runningStep && ev.kind === "warn") { runningStep.classList.remove("active"); runningStep.classList.add("failed"); runningStep.querySelector(".run")?.remove(); runningStep = null; }
+      if (/^Step \d+: /.test(ev.text)) break; // the plan card already shows this
+      if (ev.text.startsWith("All done")) { tl.append(el("div", { class: "banner" }, "🎉 All done! Your work is safe and in sync.")); break; }
+      if (ev.text.startsWith("✓ Saved") && conflictCard) {
+        conflictCard.card.append(el("div", { class: "msg ok" }, ev.text));
+        plan?.steps.find(li => li.querySelector("b") && !li.classList.contains("done"))?.classList.add("done"); break; }
+      tl.append(el("div", { class: "msg " + (ev.kind || "info") }, ev.text)); break;
+    }
+    case "conflict": {
+      const buttons = [...ev.choices, "I'll fix it myself in my editor"].map(t => el("button", { disabled: true }, t));
+      const explain = el("div", { class: "explain" });
+      const c = card(`🤝 Conflict ${ev.index + 1} of ${ev.total} · ${ev.file} (around line ${ev.line})`,
+        el("p", { class: "muted", style: "margin-top:0" }, "You and a teammate changed the same lines. Nothing is lost. Just pick what to keep."),
+        el("div", { class: "versions" },
+          ev.base.trim() ? el("div", { class: "ver base" }, el("h3", {}, "Before anyone changed it"), el("pre", {}, ev.base)) : null,
+          el("div", { class: "ver mine" }, el("h3", {}, `① Yours (${ev.labels.mine})`), el("pre", {}, ev.mine || "(nothing, this part was removed)")),
+          el("div", { class: "ver theirs" }, el("h3", {}, `② Theirs (${ev.labels.theirs})`), el("pre", {}, ev.theirs || "(nothing, this part was removed)"))),
+        explain, el("b", {}, "What do you want to keep?"), el("div", { class: "choices" }, buttons));
+      conflictCard = { card: c, buttons, explain, done: false }; break;
+    }
+    case "conflict-line":
+      conflictCard?.explain.append(el("p", { class: ev.key }, ev.key === "you" ? "💬 You: " : ev.key === "them" ? "     Them: " : "     Note: ", ev.text)); break;
+    case "resolved":
+      conflictCard?.card.append(el("div", { style: "margin-top:12px" }, el("b", {}, `Here's how ${ev.file} will look:`),
+        ...ev.picked.map(t => el("pre", { style: "background:#f4f6f5;padding:10px;border-radius:8px;margin-top:6px" }, t || "(empty)")))); break;
+    case "end":
+      setBusy(false); stopThinking();
+      if (ev.ok && plan && !plan.steps.length) tl.append(el("div", { class: "banner" }, "✓ Nothing to do. You're all set!"));
+      tl.append(el("div", { class: "row", style: "justify-content:center;margin-top:8px" },
+        el("button", { onclick: () => start("status") }, "📍 Check again"))); break;
+  }
+}
+
+// ---------- live connection ----------
+function connect() {
+  const es = new EventSource("/api/events?token=" + TOKEN);
+  es.onmessage = m => {
+    const ev = JSON.parse(m.data);
+    if (ev.type === "replay") { if (ev.events.length) ev.events.forEach(render); setBusy(ev.busy); return; }
+    render(ev);
+  };
+  es.onerror = () => { es.close(); setTimeout(connect, 1500); };
+}
+drawRecent(); drawAI(); connect();
+if (recent()[0]) $("#repo").value = recent()[0];
+</script>
+</body>
+</html>
