@@ -11,7 +11,7 @@ import { join, dirname, resolve } from "node:path";
 import { homedir, platform } from "node:os";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { run } from "./runner.mjs";
+import { run, stopGit } from "./runner.mjs";
 import { toFacts, nextHint } from "./collector.mjs";
 import { INTENTS, quickIntent, refuseText } from "./rules.mjs";
 import { CHOICES } from "./conflicts.mjs";
@@ -31,9 +31,12 @@ const aiOn = () => useAI && ai.up && ai.hasModel;
 const clients = new Set();
 let history = [];             // events of the current run, replayed if the page reloads
 const pending = new Map();    // question id -> resolve()
-let nextId = 1, busy = false;
+let nextId = 1, busy = false, runCount = 0, busyWith = null;
+const t = () => new Date().toLocaleTimeString();
 
+let evN = 0;
 function emit(ev) {
+  ev = { ...ev, _n: ++evN }; // numbered, so the page can also catch up by polling (some antivirus/proxies hold back live updates)
   history.push(ev);
   const line = `data: ${JSON.stringify(ev)}\n\n`;
   for (const res of clients) res.write(line);
@@ -53,7 +56,7 @@ const ui = {
     return strict ? String(v ?? "").trim().toLowerCase() === "yes" : v === true;
   },
   show: async (p, st, round) => { if (round > 1) stopExplaining(); emit({ type: "show", round, facts: toFacts(st), warnings: p.warnings || [] }); },
-  running: info => emit({ type: "running", ...info }),
+  running: info => { console.log(`   ▶ ${info.cmd}`); emit({ type: "running", ...info }); },
   output: text => emit({ type: "output", text }),
   showConflict: async ({ file, conflict, index, total, labels }) => {
     emit({ type: "conflict", file, index, total, labels, line: conflict.line,
@@ -152,12 +155,17 @@ const server = http.createServer(async (req, res) => {
   if (token !== TOKEN) return json(res, 403, { error: "bad token" });
 
   if (url.pathname === "/api/events") {
-    res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
+    res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache, no-transform", Connection: "keep-alive", "X-Accel-Buffering": "no" });
+    res.flushHeaders?.(); res.write(": hello\n\n");
     res.write(`data: ${JSON.stringify({ type: "replay", events: history, busy })}\n\n`);
     clients.add(res);
     const ping = setInterval(() => res.write(": ping\n\n"), 15000);
     req.on("close", () => { clearInterval(ping); clients.delete(res); });
     return;
+  }
+  if (url.pathname === "/api/poll") {
+    const since = Number(url.searchParams.get("since") || 0);
+    return json(res, 200, { events: history.filter(e => e._n > since), busy, last: evN });
   }
   if (url.pathname === "/api/info") {
     if (useAI && !(ai.up && ai.hasModel)) { ai = await isAvailable(); if (ai.up && ai.hasModel) warmup(); }
@@ -173,10 +181,18 @@ const server = http.createServer(async (req, res) => {
     if (r) { pending.delete(Number(b.id)); emit({ type: "answered", id: Number(b.id), value: b.value }); r(b.value); }
     return json(res, 200, { ok: !!r });
   }
-  if (url.pathname === "/api/stop") { answerAll(null); return json(res, 200, { ok: true }); }
+  if (url.pathname === "/api/stop") {
+    // Stop whatever is running: answer open questions with "no", end a running git command, stop Gemma.
+    answerAll(null); stopGit(); stopExplaining();
+    if (b.force && busy) { console.log(`[${t()}] Reset: stopped "${busyWith?.intent}".`); busy = false; runCount++; emit({ type: "say", kind: "warn", text: "Stopped. Nothing else will run. Click a button to start again." }); emit({ type: "end", ok: false, stopped: true }); }
+    return json(res, 200, { ok: true, busy });
+  }
   if (url.pathname === "/api/ai") { useAI = !!b.on; if (useAI) { ai = await isAvailable(); if (ai.up && ai.hasModel) warmup(); } return json(res, 200, { useAI, aiUp: ai.up, hasModel: ai.hasModel }); }
   if (url.pathname === "/api/run") {
-    if (busy) return json(res, 409, { error: "Already working on something. Finish or stop it first." });
+    if (busy) {
+      console.log(`[${t()}] Still busy with "${busyWith?.intent}" (started ${Math.round((Date.now() - busyWith?.at) / 1000)} s ago, ${pending.size} question(s) waiting). Use 🔄 Reset in the app.`);
+      return json(res, 409, { error: "Already working on something. Finish or stop it first." });
+    }
     const cwd = String(b.path || "");
     if (!cwd || !existsSync(cwd) || !statSync(cwd).isDirectory()) return json(res, 400, { error: "That folder doesn't exist." });
     const intent = INTENTS.includes(b.intent) ? b.intent : "status";
@@ -184,7 +200,8 @@ const server = http.createServer(async (req, res) => {
     const preset = {};
     for (const k of ["stash", "action", "to", "branch", "target", "from", "ref", "style", "target"])
       if (typeof b.values?.[k] === "string") preset[k] = b.values[k].slice(0, 100);
-    stopExplaining(); busy = true; history = [];
+    stopExplaining(); busy = true; history = []; const myRun = ++runCount;
+    busyWith = { intent, at: Date.now() }; console.log(`[${t()}] Started: ${intent} in ${cwd}${b.fetch !== false ? " (checking GitHub first)" : ""}`);
     emit({ type: "start", intent, path: cwd, words: WORDS[intent] });
     json(res, 200, { ok: true });
     try {
@@ -193,7 +210,7 @@ const server = http.createServer(async (req, res) => {
     } catch (e) {
       emit({ type: "say", kind: "error", text: "Something went wrong inside Ask Iche: " + e.message });
       emit({ type: "end", ok: false });
-    } finally { busy = false; answerAll(null); }
+    } finally { if (myRun === runCount && busy) { busy = false; answerAll(null); console.log(`[${t()}] Finished: ${intent}`); } }
     return;
   }
   json(res, 404, { error: "unknown" });

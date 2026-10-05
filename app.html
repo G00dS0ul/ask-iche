@@ -138,7 +138,8 @@
 <header>
   <div style="font-size:28px"><span id="logo">🌿</span></div>
   <div><h1>Ask Iche</h1><div class="sub">Your friendly git buddy. Nothing runs until you say so.</div></div>
-  <button class="pill" id="aiPill" title="Turn the AI explanations on or off">…</button>
+  <button class="pill" id="resetBtn" title="Stop anything that is running and start fresh" style="margin-left:auto;background:#fff;border:1px solid var(--line);color:var(--mute)">🔄 Reset</button>
+  <button class="pill" id="aiPill" style="margin-left:8px" title="Turn the AI explanations on or off">…</button>
 </header>
 
 <main>
@@ -248,6 +249,13 @@ $("#closeModal").onclick = closeModal;
 $("#pickDir").onclick = () => { if (cur) { closeModal(); setRepo(cur.path); } };
 $("#repo").addEventListener("keydown", e => { if (e.key === "Enter" && $("#repo").value.trim()) setRepo($("#repo").value.trim()); });
 
+// ---------- Reset: stop everything, start nothing ----------
+$("#resetBtn").onclick = async () => {
+  await api("stop", { force: true });
+  tl.replaceChildren(el("div", { class: "msg info" }, "🔄 Fresh start. Nothing is running. Pick a button when you're ready."));
+  setBusy(false);
+};
+
 // ---------- AI pill ----------
 async function drawAI(info) {
   info = info || await api("info");
@@ -266,6 +274,12 @@ async function start(intent, values) {
   if (!path) { $("#browse").click(); return; }
   $("#intentAsk").replaceChildren();
   const r = await api("run", { path, intent, values });
+  if (r.error && /already working/i.test(r.error)) { // something from before is still running (maybe in another tab)
+    tl.querySelectorAll(".msg.stuck").forEach(x => x.remove());
+    const box = el("div", { class: "msg error stuck" }, "Iche is still busy with something from before (maybe in another tab). ",
+      el("button", { style: "margin-left:8px", onclick: async () => { box.remove(); await api("stop", { force: true }); start(intent, values); } }, "⏹ Stop it and start this"));
+    tl.prepend(box); return;
+  }
   if (r.error) tl.prepend(el("div", { class: "msg error" }, r.error));
 }
 document.querySelectorAll(".action[data-intent]").forEach(b => b.onclick = () => start(b.dataset.intent));
@@ -535,12 +549,28 @@ function connect() {
   const es = new EventSource("/api/events?token=" + TOKEN);
   es.onmessage = m => {
     const ev = JSON.parse(m.data);
-    if (ev.type === "replay") { if (ev.events.length) ev.events.forEach(render); setBusy(ev.busy); return; }
-    render(ev);
+    if (ev.type === "replay") { if (ev.events.length) ev.events.forEach(take); setBusy(ev.busy); return; }
+    take(ev);
   };
   es.onerror = () => { es.close(); setTimeout(connect, 1500); };
 }
-drawRecent(); drawAI(); connect();
+// Every update has a number. Live updates and the 1-second check below both feed take(), and each
+// update is shown once. So the page keeps up even if something on the laptop holds back live updates.
+let lastN = 0, shownError = false;
+function take(ev) {
+  if (ev._n) { if (ev._n <= lastN) return; lastN = ev._n; }
+  try { render(ev); } catch (e) {
+    console.error("Ask Iche display error", ev, e);
+    if (!shownError) { shownError = true; tl.append(el("div", { class: "msg error" }, `Display problem (${ev.type}): ${e.message}. Press F12 → Console and send Iche a screenshot.`)); }
+  }
+}
+async function poll() {
+  try { const r = await api("poll?since=" + lastN); (r.events || []).forEach(take); if (typeof r.busy === "boolean" && r.busy !== busy) setBusy(r.busy); }
+  catch {}
+  setTimeout(poll, 1000);
+}
+try { drawRecent(); } catch (e) { console.error(e); localStorage.removeItem("recent"); }
+drawAI().catch(e => { console.error(e); $("#aiPill").textContent = "Gemma: couldn't check"; }); connect(); poll();
 if (recent()[0]) $("#repo").value = recent()[0];
 </script>
 </body>

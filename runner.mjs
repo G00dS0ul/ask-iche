@@ -12,9 +12,11 @@ import { readConflict, build, pick, save, CHOICES } from "./conflicts.mjs";
 const MAX_ROUNDS = 6;
 
 // Run git, show its output live, and capture it for error explanations.
+let current = null; // the git command running right now (so Stop can end it)
+export function stopGit() { try { current?.kill(); } catch {} current = null; }
 function runGit(args, cwd, onOutput) {
   return new Promise(resolve => {
-    const child = spawn("git", args, {
+    const child = current = spawn("git", args, {
       cwd,
       windowsHide: true,
       stdio: ["inherit", "pipe", "pipe"], // stdin inherited so credential prompts still work
@@ -25,8 +27,8 @@ function runGit(args, cwd, onOutput) {
     let out = "";
     child.stdout.on("data", d => { out += d; onOutput ? onOutput(String(d)) : process.stdout.write(d); });
     child.stderr.on("data", d => { out += d; onOutput ? onOutput(String(d)) : process.stderr.write(d); });
-    child.on("error", e => resolve({ code: -1, out: String(e.message) }));
-    child.on("close", code => resolve({ code, out }));
+    child.on("error", e => { if (current === child) current = null; resolve({ code: -1, out: String(e.message) }); });
+    child.on("close", code => { if (current === child) current = null; resolve({ code, out }); });
   });
 }
 

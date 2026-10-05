@@ -4,24 +4,35 @@
 // Usage as a CLI:   node collector.mjs [--fetch] [path/to/repo]
 // Usage as module:  import { collect, toFacts } from "./collector.mjs";
 
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { spawn } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
-const exec = promisify(execFile);
 
 // Run a git command and return stdout. Throws on failure.
-async function git(args, cwd, timeout = 15000) {
-  const { stdout } = await exec("git", ["-c", "core.quotepath=false", ...args], {
-    cwd,
-    timeout,
-    windowsHide: true,
-    maxBuffer: 10 * 1024 * 1024,
-    env: { ...process.env, GIT_TERMINAL_PROMPT: "0", LC_ALL: "C" },
+// Own spawn (not execFile): on Windows a timed-out "git fetch" can leave a helper (e.g. the credential
+// manager) holding the pipe open, and execFile then waits forever. Here the timer always wins.
+export function killTree(child) {
+  try { if (process.platform === "win32") spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { windowsHide: true }); else child.kill("SIGKILL"); } catch {}
+}
+function git(args, cwd, timeout = 15000) {
+  return new Promise((resolve, reject) => {
+    const child = spawn("git", ["-c", "core.quotepath=false", ...args], {
+      cwd, windowsHide: true, stdio: ["ignore", "pipe", "pipe"],
+      // never wait for a login prompt nobody can see
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "never", LC_ALL: "C" },
+    });
+    let out = "", err = "", done = false, code = null;
+    child.stdout.setEncoding("utf8"); child.stderr.setEncoding("utf8");
+    child.stdout.on("data", d => { out += d; }); child.stderr.on("data", d => { err += d; });
+    const finish = e => { if (done) return; done = true; clearTimeout(timer); e ? reject(e) : resolve(out); };
+    const fail = msg => Object.assign(new Error(msg), { stderr: err || msg });
+    const timer = setTimeout(() => { killTree(child); finish(fail(`git ${args[0]} took too long (over ${Math.round(timeout / 1000)} s) and was stopped`)); }, timeout);
+    child.on("error", e => finish(e));
+    child.on("exit", c => { code = c; setTimeout(() => finish(c === 0 ? null : fail(err.trim() || `git ${args[0]} failed`)), 1500); }); // pipe held open by a helper
+    child.on("close", c => finish((c ?? code) === 0 ? null : fail(err.trim() || `git ${args[0]} failed`)));
   });
-  return stdout;
 }
 
 // Same as git(), but returns null instead of throwing.
